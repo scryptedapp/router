@@ -4,6 +4,9 @@ import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import crypto from 'crypto';
 import fs from 'fs';
 import { getInterfaceName } from "./interface-name";
+import yaml from 'yaml';
+import { NetplanConfig } from "./netplan";
+import { runCommand } from "./cli";
 
 export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator {
     vlans = new Map<string, Vlan>();
@@ -37,50 +40,76 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         const allParents = new Set<string>()
 
         const bringup = new Set<Vlan>();
-        const defaultVlans = new Set<string>();
+        const needParentInterfaces = new Set<string>();
 
-        let interfaces = '';
+        const netplan: NetplanConfig = {
+            network: {
+                version: 2,
+                ethernets: {
+                },
+                vlans: {
+                },
+            }
+        };
+
+
         for (const vlan of this.vlans.values()) {
             const vlanId = vlan.storageSettings.values.vlanId;
-            if (!vlanId)
+            if (!vlanId) {
+                vlan.console.warn('VLAN ID is required.');
                 continue;
+            }
 
             const parentInterface = vlan.storageSettings.values.parentInterface;
-            if (!parentInterface)
+            if (!parentInterface) {
+                vlan.console.warn('Parent Interface is required.');
                 continue;
+            }
 
             allParents.add(parentInterface);
 
-            const address = vlan.storageSettings.values.address;
-            if (!address)
+            const { addresses, dhcpMode } = vlan.storageSettings.values;
+            if (!addresses.length && dhcpMode !== 'Client') {
+                vlan.console.warn('Address is required if DHCP Mode is not Client.');
                 continue;
+            }
 
             bringup.add(vlan);
 
             const interfaceName = getInterfaceName(parentInterface, vlanId);
-            if (vlanId === 1)
-                defaultVlans.add(parentInterface);
-            // const interfaceName = `${vlan.nativeId}`;
 
-            interfaces += `
-allow-hotplug ${interfaceName}
-iface ${interfaceName} inet static
-    address ${address}
-    netmask 255.255.255.0
-`;
+            const dhcp4 = dhcpMode == 'Client';
+            const dhcp6 = dhcpMode == 'Client';
+            if (vlanId === 1) {
+                netplan.network.ethernets![parentInterface] = {
+                    addresses: addresses.length ? addresses : undefined,
+                    optional: true,
+                    dhcp4,
+                    dhcp6,
+                }
+            }
+            else {
+                needParentInterfaces.add(parentInterface);
+                netplan.network.vlans![interfaceName] = {
+                    link: parentInterface,
+                    id: vlanId,
+                    addresses: addresses.length ? addresses : undefined,
+                    optional: true,
+                    dhcp4,
+                    dhcp6,
+                }
+            }
         }
 
-        let parentInterfaces = '';
-        for (const parentInterface of allParents) {
-            if (defaultVlans.has(parentInterface))
+        for (const parentInterface of needParentInterfaces) {
+            if (netplan.network.ethernets![parentInterface])
                 continue;
-            parentInterfaces += `
-iface ${parentInterface} inet manual
-
-`;
+            netplan.network.ethernets![parentInterface] = {
+                dhcp4: false,
+                dhcp6: false,
+                optional: true,
+            }
         }
-
-        interfaces = parentInterfaces + interfaces;
 
         // dnsmasq -d -i eth1.10:svdff7 -z --dhcp-range=192.168.10.100,192.168.10.200,12h --dhcp-option=6,192.168.10.1
 
@@ -88,8 +117,10 @@ iface ${parentInterface} inet manual
         // iptables -A FORWARD -i eth1.10 -o eth0 -j ACCEPT
         // iptables -A FORWARD -i eth0 -o eth1.10 -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-        // await fs.promises.writeFile(`/etc/network/interfaces.d/${this.nativeId}`, interfaces);        
-        await fs.promises.writeFile(`/etc/network/interfaces`, interfaces);
+        await fs.promises.writeFile(`/etc/netplan/01-scrypted.yaml`, yaml.stringify(netplan), {
+            mode: 0o600,
+        });
+        await runCommand('netplan', ['apply'], this.console);
 
         for (const vlan of bringup) {
             await vlan.initializeNetworkInterface();
@@ -101,7 +132,7 @@ iface ${parentInterface} inet manual
             const vlan = this.vlans.get(nativeId!);
             if (vlan) {
                 this.vlans.delete(nativeId!);
-                vlan.storageSettings.values.address = undefined;
+                vlan.storageSettings.values.parentInterface = undefined;
                 vlan.initializeNetworkInterface();
             }
         }

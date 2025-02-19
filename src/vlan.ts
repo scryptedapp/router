@@ -1,13 +1,11 @@
-import fs from 'fs';
 import { ScryptedDeviceBase, ScryptedNativeId, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
-import type { Networks } from "./networks";
+import fs from 'fs';
 import os from 'os';
-import { getServiceFile, removeServiceFile, systemctlDaemonReload, systemctlDisable, systemctlEnable, systemctlRestart, systemctlStart, systemctlStop } from "./systemd";
-import { ifdown, ifup } from "./ifupdown";
-import { ChildProcess } from 'child_process';
-import { logToConsoleAndWait, waitExit } from './cli';
+import { ifdown } from "./ifupdown";
 import { getInterfaceName } from './interface-name';
+import type { Networks } from "./networks";
+import { getServiceFile, removeServiceFile, systemctlDaemonReload, systemctlEnable, systemctlRestart } from "./systemd";
 
 export class Vlan extends ScryptedDeviceBase implements Settings {
     storageSettings = new StorageSettings(this, {
@@ -26,11 +24,15 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
             defaultValue: 1,
             description: 'The VLAN ID to use for this network interface. The default VLAN ID is 1.',
         },
-        address: {
-            title: 'Address',
+        addresses: {
+            title: 'Addresses',
             type: 'string',
-            description: 'The IP address of this network interface.',
+            description: 'The IP addresses of this network interface. The Addresses are ignored if the DHCP Mode is Client.',
             placeholder: '192.168.10.1/24',
+            multiple: true,
+            choices: [],
+            combobox: true,
+            defaultValue: [],
         },
         dnsServers: {
             title: 'DNS Servers',
@@ -44,10 +46,23 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
                 '1.0.0.1',
             ],
         },
-        dhcpServer: {
-            title: 'DHCP Server',
-            type: 'boolean',
-            description: 'Enable a DHCP server on this network interface.',
+        dhcpMode: {
+            group: 'DHCP',
+            title: 'DHCP Mode',
+            description: 'The DHCP mode to use for this network interface.',
+            choices: [
+                'None',
+                'Server',
+                'Client',
+            ],
+            defaultValue: 'None',
+        },
+        dhcpRange: {
+            group: 'DHCP',
+            title: 'DHCP Server Range',
+            type: 'string',
+            description: 'The DHCP range to use for this network interface. If not specified, a default range between will be used.',
+            placeholder: '192.168.10.10,192.168.10.200,12h',
         },
         applyChanges: {
             title: 'Apply Changes',
@@ -75,14 +90,14 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
         const interfaceName = getInterfaceName(this.storageSettings.values.parentInterface, this.storageSettings.values.vlanId);
         const serviceFile = getServiceFile('vlan', this.nativeId!);
 
-        if (!this.storageSettings.values.address || !this.storageSettings.values.parentInterface) {
+        if (!this.storageSettings.values.parentInterface || !this.storageSettings.values.parentInterface) {
             await ifdown(interfaceName, this.console)
             await removeServiceFile('vlan', this.nativeId!, this.console);
         }
         else {
-            await ifup(interfaceName, this.console);
+            // await ifup(interfaceName, this.console);
 
-            if (!this.storageSettings.values.dhcpServer) {
+            if (this.storageSettings.values.dhcpMode !== 'Server') {
                 await removeServiceFile('vlan', this.nativeId!, this.console);
             }
             else {
@@ -90,7 +105,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
                 // insert -S between each server
                 const serverArgs = servers.map(server => ['-S', server]).flat();
 
-                const address = this.storageSettings.values.address;
+                const address: string = this.storageSettings.values.addresses[0];
                 const addressWithoutMask = address.split('/')[0];
 
                 const serviceFileContents = `
