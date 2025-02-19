@@ -17,6 +17,9 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             title: 'Name',
             type: 'string',
         },
+        parentInterface: {
+            title: 'Network Interface',
+        },
         vlanId: {
             title: 'VLAN ID',
             type: 'number',
@@ -111,12 +114,6 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             }
         }
 
-        // dnsmasq -d -i eth1.10:svdff7 -z --dhcp-range=192.168.10.100,192.168.10.200,12h --dhcp-option=6,192.168.10.1
-
-        // iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-        // iptables -A FORWARD -i eth1.10 -o eth0 -j ACCEPT
-        // iptables -A FORWARD -i eth0 -o eth1.10 -m state --state RELATED,ESTABLISHED -j ACCEPT
-
         await fs.promises.writeFile(`/etc/netplan/01-scrypted.yaml`, yaml.stringify(netplan), {
             mode: 0o600,
         });
@@ -153,12 +150,15 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
     async createDevice(settings: DeviceCreatorSettings): Promise<string> {
         const nativeId = `sv${crypto.randomBytes(2).toString('hex')}`;
-        let { vlanId, name } = settings;
+        let { vlanId, name, parentInterface } = settings;
         name = name?.toString() || `VLAN ${vlanId}`;
         vlanId = parseInt(vlanId as any);
+        parentInterface = parentInterface?.toString();
+        if (!parentInterface)
+            throw new Error('Network Interface is required.');
         if (!vlanId || vlanId < 1 || vlanId > 4095)
             throw new Error('Invalid VLAN ID');
-        this.validateNetworkUnused(vlanId);
+        this.validateNetworkUnused(parentInterface, vlanId);
         const id = await sdk.deviceManager.onDeviceDiscovered({
             nativeId,
             providerNativeId: this.nativeId,
@@ -174,9 +174,9 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         return id;
     }
 
-    validateNetworkUnused(vlanId: number, allow?: Vlan) {
+    validateNetworkUnused(parentInterface: string, vlanId: number, allow?: Vlan) {
         for (const vlan of this.vlans.values()) {
-            if (vlan.storageSettings.values.vlanId === vlanId && vlan !== allow)
+            if (parentInterface === vlan.storageSettings.values.parentInterface && vlan.storageSettings.values.vlanId === vlanId && vlan !== allow)
                 throw new Error(`VLAN ID ${vlanId} already in use.`);
         }
     }
