@@ -20,6 +20,7 @@ export async function runCommand(command: string, args: string[], console: Conso
 }
 
 export function startCommand(command: string, args: string[], console: Console) {
+    console.log(command, ...args);
     const cp = child_process.spawn(command, args, {
         stdio: ['inherit', 'pipe', 'pipe'],
     });

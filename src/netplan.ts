@@ -6,7 +6,7 @@ export type NetplanConfig = {
   };
 };
 
-type EthernetInterface = {
+export type EthernetInterface = {
   dhcp4?: boolean;
   dhcp6?: boolean;
   addresses?: string[];
@@ -34,7 +34,7 @@ type EthernetInterface = {
   // Add other Ethernet interface properties as needed
 };
 
-type VlanInterface = {
+export type VlanInterface = {
   id: number;
   link: string;
   dhcp4?: boolean;
@@ -63,7 +63,7 @@ type VlanInterface = {
   'dhcp6-overrides'?: Dhcp6Overrides;
   // Add other Vlan interface properties as needed
 };
-type Route = {
+export type Route = {
   to?: string;
   via?: string;
   from?: string;
@@ -74,7 +74,7 @@ type Route = {
   scope?: 'host' | 'link' | 'global';
 };
 
-type RoutingPolicy = {
+export type RoutingPolicy = {
   from?: string;
   to?: string;
   table?: number;
@@ -98,9 +98,8 @@ type Dhcp4Overrides = {
   'use-routes'?: boolean;
   'use-dns'?: boolean;
   'route-metric'?: number;
-  'route-table'?: number;
   'use-ntp'?: boolean;
-  'use-domain'?: boolean;
+  'use-domains'?: boolean;
   'use-.Dynamic-DNS'?: boolean;
 };
 
@@ -111,8 +110,7 @@ type Dhcp6Overrides = {
   'use-routes'?: boolean;
   'use-dns'?: boolean;
   'route-metric'?: number;
-  'route-table'?: number;
   'use-ntp'?: boolean;
-  'use-domain'?: boolean;
+  'use-domains'?: boolean;
   'use-raft6'?: boolean;
 };

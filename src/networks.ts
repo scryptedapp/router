@@ -1,3 +1,4 @@
+import net from 'net';
 import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedNativeId, Setting } from "@scrypted/sdk";
 import { Vlan } from "./vlan";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
@@ -5,7 +6,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import { getInterfaceName } from "./interface-name";
 import yaml from 'yaml';
-import { NetplanConfig } from "./netplan";
+import { EthernetInterface, NetplanConfig, Route, RoutingPolicy, VlanInterface } from "./netplan";
 import { runCommand } from "./cli";
 import os from 'os';
 export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator {
@@ -24,10 +25,10 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             }
         }
 
-        this.regenerateInterfaces();
+        this.regenerateInterfaces(this.console);
     }
 
-    async regenerateInterfaces() {
+    async regenerateInterfaces(console: Console) {
         const allParents = new Set<string>()
 
         const bringup = new Set<Vlan>();
@@ -44,6 +45,9 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         };
 
 
+        let tablesStart = 100;
+        const tableMaps = new Map<string, number>();
+
         for (const vlan of this.vlans.values()) {
             const vlanId = vlan.storageSettings.values.vlanId;
             if (!vlanId) {
@@ -59,46 +63,164 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
             allParents.add(parentInterface);
 
-            const { addresses, dhcpMode, dnsServers } = vlan.storageSettings.values;
-            if (!addresses.length && dhcpMode !== 'Client') {
+            const { addresses, dhcpMode, dnsServers, internet, gateway4, gateway6 } = vlan.storageSettings.values;
+            const dhcpClient = dhcpMode === 'Client';
+            if (!addresses.length && !dhcpClient) {
                 vlan.console.warn('Address is required if DHCP Mode is not Client.');
                 continue;
             }
 
-            bringup.add(vlan);
 
-            const interfaceName = getInterfaceName(parentInterface, vlanId);
-
-            const dhcp4 = dhcpMode == 'Client' && !!vlan.storageSettings.values.dhcp4;
-            const dhcp6 = dhcpMode == 'Client' && !!vlan.storageSettings.values.dhcp6;
-            const acceptRa = dhcpMode == 'Client' && !!vlan.storageSettings.values.acceptRa;
+            const dhcp4 = dhcpClient && !!vlan.storageSettings.values.dhcp4;
+            const dhcp6 = dhcpClient && !!vlan.storageSettings.values.dhcp6;
+            const acceptRa = dhcpClient && !!vlan.storageSettings.values.acceptRa;
 
             const nameservers = dnsServers?.length ? {
                 addresses: dnsServers,
             } : undefined;
 
-            if (vlanId === 1) {
-                netplan.network.ethernets![parentInterface] = {
-                    addresses: addresses.length ? addresses : undefined,
-                    nameservers,
-                    optional: true,
-                    dhcp4,
-                    dhcp6,
+            const interfaceName = getInterfaceName(parentInterface, vlanId);
+
+            let routes: Route[] | undefined;
+            let routingPolicy: RoutingPolicy[] | undefined;
+
+            let table = tableMaps.get(interfaceName);
+            if (!table) {
+                table = tablesStart++;
+                tableMaps.set(interfaceName, table);
+            }
+
+            const ipv4Default = '0.0.0.0/0';
+            const ipv6Default = '::/0';
+
+            // create blackhole table for everything but it may not be used.
+            routes = [
+                {
+                    to: ipv4Default,
+                    table,
+                    type: 'blackhole',
+                    metric: 1000,
+                },
+                {
+                    to: ipv6Default,
+                    table,
+                    type: 'blackhole',
+                    metric: 1000,
+                },
+            ];
+
+            if (!dhcpClient) {
+                routingPolicy = addresses.map((address: string) => {
+                    const [ip] = address.split('/');
+                    return {
+                        from: address,
+                        to: net.isIPv4(ip) ? ipv4Default : ipv6Default,
+                        table,
+                        priority: 1,
+                    } satisfies RoutingPolicy;
+                });
+
+                if (internet !== 'Disabled') {
+                    // don't fail hard if this is misconfigured.
+                    if (gateway4 || gateway6) {
+                        vlan.console.warn('Internet is enabled, but a gateway was provided. Preferring gateway.');
+                    }
+                    else {
+                        const internetVlan = [...this.vlans.values()].find(v => getInterfaceName(v.storageSettings.values.parentInterface, v.storageSettings.values.vlanId) === internet);
+                        if (!internetVlan) {
+                            this.console.warn(`Internet interface ${internet} not found or is not managed directly.`);
+                        }
+                        else {
+                            let internetTable = tableMaps.get(internet);
+                            if (!internetTable) {
+                                internetTable = tablesStart++;
+                                tableMaps.set(internet, internetTable);
+                            }
+
+                            for (const rp of routingPolicy!) {
+                                rp.table = internetTable;
+                            }
+
+                            for (const address of addresses) {
+                                const [ip] = address.split('/');
+                                if (net.isIPv4(ip) && internetVlan.storageSettings.values.gateway4) {
+                                    routes.unshift(
+                                        {
+                                            from: address,
+                                            to: ipv4Default,
+                                            via: internetVlan.storageSettings.values.gateway4,
+                                            table: internetTable,
+                                            metric: 100,
+                                        }
+                                    )
+                                }
+                                else if (net.isIPv6(ip) && internetVlan.storageSettings.values.gateway6) {
+                                    routes.unshift(
+                                        {
+                                            from: address,
+                                            to: ipv6Default,
+                                            via: internetVlan.storageSettings.values.gateway6,
+                                            table: internetTable,
+                                            metric: 100,
+                                        }
+                                    )
+                                }
+                            }
+
+                        }
+                    }
                 }
+
+                if (gateway6) {
+                    routes.unshift({
+                        to: 'default',
+                        via: gateway6,
+                        table,
+                    });
+                }
+                if (gateway4) {
+                    routes.unshift({
+                        to: 'default',
+                        via: gateway4,
+                        table,
+                    });
+                }
+            }
+
+            bringup.add(vlan);
+
+            let iface: EthernetInterface | VlanInterface;
+
+            if (vlanId === 1) {
+                iface = netplan.network.ethernets![parentInterface] = {}
             }
             else {
                 needParentInterfaces.add(parentInterface);
-                netplan.network.vlans![interfaceName] = {
+                iface = netplan.network.vlans![interfaceName] = {
                     link: parentInterface,
                     id: vlanId,
-                    addresses: addresses.length ? addresses : undefined,
-                    nameservers,
-                    optional: true,
-                    dhcp4,
-                    dhcp6,
-                    "accept-ra": acceptRa,
                 }
             }
+
+            Object.assign(iface, {
+                addresses: addresses.length ? addresses : undefined,
+                nameservers,
+                optional: true,
+                dhcp4,
+                dhcp6,
+                "accept-ra": acceptRa,
+                routes,
+                "routing-policy": routingPolicy,
+                // don't add to default route table, will add to custom table.
+                "dhcp4-overrides": {
+                    "use-routes": false,
+                    "use-domains": false,
+                },
+                "dhcp6-overrides": {
+                    "use-routes": false,
+                    "use-domains": false,
+                },
+            } satisfies EthernetInterface | VlanInterface);
         }
 
         for (const parentInterface of needParentInterfaces) {
@@ -111,10 +233,31 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             }
         }
 
+        // for (const [internetInterface, table] of internetMaps.entries()) {
+        //     const internet = netplan.network.ethernets?.[internetInterface] || netplan.network.vlans?.[internetInterface];
+        //     if (!internet) {
+        //         console.warn('Internet interface was not found or is not configured by this netplan', internetInterface);
+        //         continue;
+        //     }
+
+        //     const address = internet.addresses?.[0];
+        //     if (!address)
+        //         continue;
+
+        //     const [via] = address.split('/');
+        //     internet.routes = [
+        //         {
+        //             to: 'default',
+        //             via: via,
+        //             table,
+        //         }
+        //     ];
+        // }
+
         await fs.promises.writeFile(`/etc/netplan/01-scrypted.yaml`, yaml.stringify(netplan), {
             mode: 0o600,
         });
-        await runCommand('netplan', ['apply'], this.console);
+        await runCommand('netplan', ['apply'], console);
 
         for (const vlan of bringup) {
             await vlan.initializeNetworkInterface();
@@ -168,6 +311,8 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         const nativeId = `sv${crypto.randomBytes(2).toString('hex')}`;
         let { vlanId, name, parentInterface } = settings;
         name = name?.toString() || `VLAN ${vlanId}`;
+        if (!vlanId)
+            vlanId = 1;
         vlanId = parseInt(vlanId as any);
         parentInterface = parentInterface?.toString();
         if (!parentInterface)

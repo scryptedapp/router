@@ -37,6 +37,18 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
             combobox: true,
             defaultValue: [],
         },
+        gateway4: {
+            title: 'Gateway IPv4',
+            type: 'string',
+            description: 'The IPv4 gateway for this network interface.',
+            placeholder: '192.168.10.1',
+        },
+        gateway6: {
+            title: 'Gateway IPv6',
+            type: 'string',
+            description: 'The IPv6 gateway for this network interface.',
+            placeholder: '2001:db8::1',
+        },
         dnsServers: {
             title: 'DNS Servers',
             type: 'string',
@@ -101,7 +113,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
             title: 'Apply Changes',
             type: 'button',
             onPut: () => {
-                this.networks.regenerateInterfaces();
+                this.networks.regenerateInterfaces(this.console);
             },
             console: true,
         }
@@ -175,7 +187,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
                         const dotParts = addressWithoutMask.split('.');
                         if (dotParts.length === 4) {
                             const withoutEnd = addressWithoutMask.split('.').slice(0, 3).join('.');
-                            const end = parseInt( dotParts[3]);
+                            const end = parseInt(dotParts[3]);
                             if (addressWithoutMask.endsWith('.1')) {
                                 dhcpRanges.push(`${withoutEnd}.2,${withoutEnd}.220,12h`);
                             }
@@ -191,9 +203,9 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
                         await removeServiceFile('vlan', this.nativeId!, this.console);
                     }
                     else {
-                    // dnsmasq -d -i eth1.10:svdff7 -z --dhcp-range=192.168.10.100,192.168.10.200,12h --dhcp-option=6,192.168.10.1
+                        // dnsmasq -d -i eth1.10:svdff7 -z --dhcp-range=192.168.10.100,192.168.10.200,12h --dhcp-option=6,192.168.10.1
 
-                    const serviceFileContents = `
+                        const serviceFileContents = `
 [Unit]
 Description=DHCP for VLAN ${this.storageSettings.values.vlanId}
 After=network.target
@@ -211,12 +223,12 @@ StandardError=null
 [Install]
 WantedBy=multi-user.target`;
 
-                    await fs.promises.writeFile(serviceFile, serviceFileContents);
-                    await systemctlDaemonReload(this.console);
-                    await systemctlEnable('vlan', this.nativeId!, this.console);
-                    await systemctlRestart('vlan', this.nativeId!, this.console);
+                        await fs.promises.writeFile(serviceFile, serviceFileContents);
+                        await systemctlDaemonReload(this.console);
+                        await systemctlEnable('vlan', this.nativeId!, this.console);
+                        await systemctlRestart('vlan', this.nativeId!, this.console);
+                    }
                 }
-            }
             }
         }
 
@@ -224,19 +236,26 @@ WantedBy=multi-user.target`;
         // iptables -A FORWARD -i eth1.10 -o eth0 -j ACCEPT
         // iptables -A FORWARD -i eth0 -o eth1.10 -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-
         if (this.storageSettings.values.internet !== 'Disabled') {
             // create a chain for each vlan
             await runCommand('iptables', ['-t', 'nat', '-N', this.nativeId!], this.console);
             await runCommand('iptables', ['-N', this.nativeId!], this.console);
+
             // flush
             await runCommand('iptables', ['-t', 'nat', '-F', this.nativeId!], this.console);
             await runCommand('iptables', ['-F', this.nativeId!], this.console);
-            // set up jump to chains
+
+            // delete jump chains
+            await runCommand('iptables', ['-t', 'nat', '-D', 'POSTROUTING', '-o', this.storageSettings.values.internet, '-j', this.nativeId!], this.console);
+            await runCommand('iptables', ['-D', 'FORWARD', '-j', this.nativeId!], this.console);
+
+            // set up the jump chains
             await runCommand('iptables', ['-t', 'nat', '-A', 'POSTROUTING', '-o', this.storageSettings.values.internet, '-j', this.nativeId!], this.console);
             await runCommand('iptables', ['-A', 'FORWARD', '-j', this.nativeId!], this.console);
+
             // masquerade
             await runCommand('iptables', ['-t', 'nat', '-A', this.nativeId!, '-o', this.storageSettings.values.internet, '-j', 'MASQUERADE'], this.console);
+
             // setup forwarding
             await runCommand('iptables', ['-A', this.nativeId!, '-i', interfaceName, '-o', this.storageSettings.values.internet, '-j', 'ACCEPT'], this.console);
             await runCommand('iptables', ['-A', this.nativeId!, '-i', this.storageSettings.values.internet, '-o', interfaceName, '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], this.console);
