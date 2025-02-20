@@ -15,7 +15,7 @@
    },
    "scrypted": {
       "name": "Router",
-      "type": "Router",
+      "type": "Builtin",
       "interfaces": [
          "Settings",
          "DeviceProvider"

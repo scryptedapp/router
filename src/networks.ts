@@ -7,28 +7,16 @@ import { getInterfaceName } from "./interface-name";
 import yaml from 'yaml';
 import { NetplanConfig } from "./netplan";
 import { runCommand } from "./cli";
-
+import os from 'os';
 export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator {
     vlans = new Map<string, Vlan>();
 
-    // this isn't actually persisted. just used for getCreateDeviceSettings ergononmics.
-    vlanStorageSettings = new StorageSettings(this, {
-        name: {
-            title: 'Name',
-            type: 'string',
-        },
-        parentInterface: {
-            title: 'Network Interface',
-        },
-        vlanId: {
-            title: 'VLAN ID',
-            type: 'number',
-            description: 'The VLAN ID to use for this network interface. The default VLAN ID is 1.',
-        },
-    });
-
     constructor(nativeId: ScryptedNativeId) {
         super(nativeId);
+
+        this.systemDevice = {
+            deviceCreator: 'Network',
+        }
 
         for (const nativeId of sdk.deviceManager.getNativeIds()) {
             if (nativeId?.startsWith('sv')) {
@@ -71,7 +59,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
             allParents.add(parentInterface);
 
-            const { addresses, dhcpMode } = vlan.storageSettings.values;
+            const { addresses, dhcpMode, dnsServers } = vlan.storageSettings.values;
             if (!addresses.length && dhcpMode !== 'Client') {
                 vlan.console.warn('Address is required if DHCP Mode is not Client.');
                 continue;
@@ -83,9 +71,15 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
             const dhcp4 = dhcpMode == 'Client';
             const dhcp6 = dhcpMode == 'Client';
+
+            const nameservers = dnsServers?.length ? {
+                addresses: dnsServers,
+            } : undefined;
+
             if (vlanId === 1) {
                 netplan.network.ethernets![parentInterface] = {
                     addresses: addresses.length ? addresses : undefined,
+                    nameservers,
                     optional: true,
                     dhcp4,
                     dhcp6,
@@ -97,6 +91,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                     link: parentInterface,
                     id: vlanId,
                     addresses: addresses.length ? addresses : undefined,
+                    nameservers,
                     optional: true,
                     dhcp4,
                     dhcp6,
@@ -145,7 +140,26 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
     }
 
     async getCreateDeviceSettings(): Promise<Setting[]> {
-        return this.vlanStorageSettings.getSettings();
+        const disallowed = new Set<string>();
+        disallowed.add('lo');
+
+        // this isn't actually persisted. just used for getCreateDeviceSettings ergononmics.
+        const vlanStorageSettings = new StorageSettings(this, {
+            name: {
+                title: 'Name',
+                type: 'string',
+            },
+            parentInterface: {
+                title: 'Network Interface',
+                choices: Object.keys(os.networkInterfaces()).filter(k => !disallowed.has(k)),
+            },
+            vlanId: {
+                title: 'VLAN ID',
+                type: 'number',
+                description: 'The VLAN ID to use for this network interface. The default VLAN ID is 1.',
+            },
+        });
+        return vlanStorageSettings.getSettings();
     }
 
     async createDevice(settings: DeviceCreatorSettings): Promise<string> {
@@ -165,12 +179,13 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             interfaces: [
                 ScryptedInterface.Settings,
             ],
-            type: ScryptedDeviceType.Builtin,
+            type: "Network" as ScryptedDeviceType,
             name,
         });
 
         const device = await this.getDevice(nativeId);
         device.storageSettings.values.vlanId = vlanId;
+        device.storageSettings.values.parentInterface = parentInterface;
         return id;
     }
 

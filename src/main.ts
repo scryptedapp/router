@@ -22,7 +22,9 @@ class ScryptedRouter extends ScryptedDeviceBase implements DeviceProvider {
                 type: ScryptedDeviceType.Builtin,
                 interfaces: [
                     ScryptedInterface.DeviceProvider,
-                    ScryptedInterface.DeviceCreator
+                    ScryptedInterface.DeviceCreator,
+                    ScryptedInterface.ScryptedSystemDevice,
+                    ScryptedInterface.ScryptedDeviceCreator,
                 ],
             }]
         });

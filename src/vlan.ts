@@ -70,11 +70,11 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
             ],
             defaultValue: 'None',
         },
-        dhcpRange: {
+        dhcpRanges: {
             group: 'DHCP',
             title: 'DHCP Server Range',
             type: 'string',
-            description: 'The DHCP range to use for this network interface. If not specified, a default range between will be used.',
+            description: 'The DHCP range to use for this network interface. If not specified, a default range between will be used. E.g.: 192.168.10.10,192.168.10.200,12h',
             placeholder: '192.168.10.10,192.168.10.200,12h',
         },
         applyChanges: {
@@ -148,6 +148,29 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
                     const address: string = this.storageSettings.values.addresses[0];
                     const addressWithoutMask = address.split('/')[0];
 
+                    let dhcpRanges: string[] = this.storageSettings.values.dhcpRanges;
+                    if (!dhcpRanges?.length) {
+                        dhcpRanges = [];
+                        let start = 1;
+                        const dotParts = addressWithoutMask.split('.');
+                        if (dotParts.length === 4) {
+                            const withoutEnd = addressWithoutMask.split('.').slice(0, 3).join('.');
+                            const end = parseInt( dotParts[3]);
+                            if (addressWithoutMask.endsWith('.1')) {
+                                dhcpRanges.push(`${withoutEnd}.2,${withoutEnd}.220,12h`);
+                            }
+                            else {
+                                dhcpRanges.push(`${withoutEnd}.1,${withoutEnd}.${end - 1},12h`);
+                                dhcpRanges.push(`${withoutEnd}.${end + 1},${withoutEnd}.220,12h`);
+                            }
+                        }
+                    }
+
+                    if (!dhcpRanges?.length) {
+                    }
+                    else {
+
+
                     // dnsmasq -d -i eth1.10:svdff7 -z --dhcp-range=192.168.10.100,192.168.10.200,12h --dhcp-option=6,192.168.10.1
 
                     const serviceFileContents = `
@@ -159,7 +182,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
         User=root
         Group=root
         Type=simple
-        ExecStart=dnsmasq -d -R -i ${interfaceName} -z --dhcp-range=192.168.10.10,192.168.10.200,12h --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')}
+        ExecStart=dnsmasq -d -R -i ${interfaceName} -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')}
         Restart=always
         RestartSec=3
         StandardOutput=null
@@ -173,6 +196,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
                     await systemctlEnable('vlan', this.nativeId!, this.console);
                     await systemctlRestart('vlan', this.nativeId!, this.console);
                 }
+            }
             }
         }
 
