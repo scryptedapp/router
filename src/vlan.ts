@@ -167,29 +167,29 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
                     }
 
                     if (!dhcpRanges?.length) {
+                        this.console.warn('DHCP Range is required if DHCP Mode is Server.');
+                        await removeServiceFile('vlan', this.nativeId!, this.console);
                     }
                     else {
-
-
                     // dnsmasq -d -i eth1.10:svdff7 -z --dhcp-range=192.168.10.100,192.168.10.200,12h --dhcp-option=6,192.168.10.1
 
                     const serviceFileContents = `
-        [Unit]
-        Description=DHCP for VLAN ${this.storageSettings.values.vlanId}
-        After=network.target
-        
-        [Service]
-        User=root
-        Group=root
-        Type=simple
-        ExecStart=dnsmasq -d -R -i ${interfaceName} -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')}
-        Restart=always
-        RestartSec=3
-        StandardOutput=null
-        StandardError=null
-        
-        [Install]
-        WantedBy=multi-user.target`;
+[Unit]
+Description=DHCP for VLAN ${this.storageSettings.values.vlanId}
+After=network.target
+
+[Service]
+User=root
+Group=root
+Type=simple
+ExecStart=dnsmasq -d -R -i ${interfaceName} -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')}
+Restart=always
+RestartSec=3
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target`;
 
                     await fs.promises.writeFile(serviceFile, serviceFileContents);
                     await systemctlDaemonReload(this.console);
