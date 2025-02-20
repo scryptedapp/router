@@ -60,7 +60,6 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
             defaultValue: 'Disabled',
         },
         dhcpMode: {
-            group: 'DHCP',
             title: 'DHCP Mode',
             description: 'The DHCP mode to use for this network interface.',
             choices: [
@@ -70,8 +69,29 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
             ],
             defaultValue: 'None',
         },
+        dhcp4: {
+            group: 'DHCP Client',
+            title: 'DHCPv4',
+            type: 'boolean',
+            description: 'Enable DHCPv4 for this network interface.',
+            defaultValue: true,
+        },
+        dhcp6: {
+            group: 'DHCP Client',
+            title: 'DHCPv6',
+            type: 'boolean',
+            description: 'Enable DHCPv6 for this network interface.',
+            defaultValue: true,
+        },
+        acceptRa: {
+            group: 'DHCP Client',
+            title: 'Accept Router Advertisements',
+            type: 'boolean',
+            description: 'Accept Router Advertisements for this network interface.',
+            defaultValue: true,
+        },
         dhcpRanges: {
-            group: 'DHCP',
+            group: 'DHCP Server',
             title: 'DHCP Server Range',
             type: 'string',
             description: 'The DHCP range to use for this network interface. If not specified, a default range between will be used. E.g.: 192.168.10.10,192.168.10.200,12h',

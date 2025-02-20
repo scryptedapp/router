@@ -69,8 +69,9 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
             const interfaceName = getInterfaceName(parentInterface, vlanId);
 
-            const dhcp4 = dhcpMode == 'Client';
-            const dhcp6 = dhcpMode == 'Client';
+            const dhcp4 = dhcpMode == 'Client' && !!vlan.storageSettings.values.dhcp4;
+            const dhcp6 = dhcpMode == 'Client' && !!vlan.storageSettings.values.dhcp6;
+            const acceptRa = dhcpMode == 'Client' && !!vlan.storageSettings.values.acceptRa;
 
             const nameservers = dnsServers?.length ? {
                 addresses: dnsServers,
@@ -95,6 +96,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                     optional: true,
                     dhcp4,
                     dhcp6,
+                    "accept-ra": acceptRa,
                 }
             }
         }
