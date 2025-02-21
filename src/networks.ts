@@ -101,24 +101,30 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                     type: 'blackhole',
                     metric: 1000,
                 },
-                {
-                    to: ipv6Default,
-                    table,
-                    type: 'blackhole',
-                    metric: 1000,
-                },
+                // blackhole ipv6? that doesn't make sense.
+                // {
+                //     to: ipv6Default,
+                //     table,
+                //     type: 'blackhole',
+                //     metric: 1000,
+                // },
             ];
 
-            if (!dhcpClient) {
+            if (dhcpClient) {
+                (addresses as string[]).splice(0, addresses.length);
+            }
+            else {
                 routingPolicy = addresses.map((address: string) => {
                     const [ip] = address.split('/');
+                    // if (net.isIPv6(ip)) 
+                    //     return;
                     return {
                         from: address,
                         to: net.isIPv4(ip) ? ipv4Default : ipv6Default,
                         table,
                         priority: 1,
                     } satisfies RoutingPolicy;
-                });
+                }).filter(Boolean) as RoutingPolicy[];
 
                 if (internet !== 'Disabled') {
                     // don't fail hard if this is misconfigured.
@@ -143,24 +149,24 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
                             for (const address of addresses) {
                                 const [ip] = address.split('/');
-                                if (net.isIPv4(ip) && internetVlan.storageSettings.values.gateway4) {
+                                if (net.isIPv4(ip) && internetVlan.storageSettings.values.gateway4 && internetVlan.storageSettings.values.dhcpMode !== 'Client') {
                                     routes.unshift(
                                         {
                                             from: address,
                                             to: ipv4Default,
                                             via: internetVlan.storageSettings.values.gateway4,
-                                            table: internetTable,
+                                            table,
                                             metric: 100,
                                         }
                                     )
                                 }
-                                else if (net.isIPv6(ip) && internetVlan.storageSettings.values.gateway6) {
+                                else if (net.isIPv6(ip) && internetVlan.storageSettings.values.gateway6 && internetVlan.storageSettings.values.dhcpMode !== 'Client') {
                                     routes.unshift(
                                         {
                                             from: address,
                                             to: ipv6Default,
                                             via: internetVlan.storageSettings.values.gateway6,
-                                            table: internetTable,
+                                            table,
                                             metric: 100,
                                         }
                                     )
@@ -176,6 +182,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                         to: 'default',
                         via: gateway6,
                         table,
+                        metric: 100,
                     });
                 }
                 if (gateway4) {
@@ -183,6 +190,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                         to: 'default',
                         via: gateway4,
                         table,
+                        metric: 100,
                     });
                 }
             }
