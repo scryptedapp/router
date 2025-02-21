@@ -116,15 +116,13 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             else {
                 routingPolicy = addresses.map((address: string) => {
                     const [ip] = address.split('/');
-                    // if (net.isIPv6(ip)) 
-                    //     return;
                     return {
                         from: address,
                         to: net.isIPv4(ip) ? ipv4Default : ipv6Default,
                         table,
                         priority: 1,
                     } satisfies RoutingPolicy;
-                }).filter(Boolean) as RoutingPolicy[];
+                });
 
                 if (internet !== 'Disabled') {
                     // don't fail hard if this is misconfigured.
