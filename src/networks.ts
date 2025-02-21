@@ -48,6 +48,9 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         let tablesStart = 100;
         const tableMaps = new Map<string, number>();
 
+        const ipv4Default = '0.0.0.0/0';
+        const ipv6Default = '::/0';
+
         for (const vlan of this.vlans.values()) {
             const vlanId = vlan.storageSettings.values.vlanId;
             if (!vlanId) {
@@ -81,48 +84,48 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
             const interfaceName = getInterfaceName(parentInterface, vlanId);
 
-            let routes: Route[] | undefined;
-            let routingPolicy: RoutingPolicy[] | undefined;
-
             let table = tableMaps.get(interfaceName);
             if (!table) {
                 table = tablesStart++;
                 tableMaps.set(interfaceName, table);
             }
 
-            const ipv4Default = '0.0.0.0/0';
-            const ipv6Default = '::/0';
+            const defaultRoute: Route = {
+                to: ipv4Default,
+                table,
+                type: 'blackhole',
+            };
 
-            // create blackhole table for everything but it may not be used.
-            routes = [
-                {
-                    to: ipv4Default,
-                    table,
-                    type: 'blackhole',
-                    metric: 1000,
-                },
-                // blackhole ipv6? that doesn't make sense.
-                // {
-                //     to: ipv6Default,
-                //     table,
-                //     type: 'blackhole',
-                //     metric: 1000,
-                // },
+            const routes: Route[] = [
+                defaultRoute,
             ];
+            const routingPolicy: RoutingPolicy[] = [];
+
+            for (const address of addresses) {
+                routes.push({
+                    to: address,
+                    scope: 'link',
+                    table,
+                } satisfies Route);
+            }
 
             if (dhcpClient) {
                 (addresses as string[]).splice(0, addresses.length);
             }
             else {
-                routingPolicy = addresses.map((address: string) => {
+                for (const address of addresses as string[]) {
                     const [ip] = address.split('/');
-                    return {
-                        from: address,
-                        to: net.isIPv4(ip) ? ipv4Default : ipv6Default,
+                    routingPolicy.push({
+                        from: ip,
                         table,
                         priority: 1,
-                    } satisfies RoutingPolicy;
-                });
+                    } satisfies RoutingPolicy);
+                    routingPolicy.push({
+                        to: ip,
+                        table,
+                        priority: 1,
+                    } satisfies RoutingPolicy);
+                }
 
                 if (internet !== 'Disabled') {
                     // don't fail hard if this is misconfigured.
@@ -141,55 +144,73 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                                 tableMaps.set(internet, internetTable);
                             }
 
-                            for (const rp of routingPolicy!) {
-                                rp.table = internetTable;
+                            // remove the default route blackhole
+                            routes.splice(routes.indexOf(defaultRoute), 1);
+
+                            // add a new routing policy specifically for this internet
+                            for (const address of addresses as string[]) {
+                                const [ip] = address.split('/');
+                                routingPolicy.push({
+                                    from: ip,
+                                    table: internetTable,
+                                    priority: 2,
+                                } satisfies RoutingPolicy);
                             }
 
                             for (const address of addresses) {
                                 const [ip] = address.split('/');
                                 if (net.isIPv4(ip) && internetVlan.storageSettings.values.gateway4 && internetVlan.storageSettings.values.dhcpMode !== 'Client') {
-                                    routes.unshift(
+                                    routes.push(
                                         {
-                                            from: address,
+                                            from: ip,
                                             to: ipv4Default,
                                             via: internetVlan.storageSettings.values.gateway4,
                                             table,
-                                            metric: 100,
                                         }
                                     )
                                 }
                                 else if (net.isIPv6(ip) && internetVlan.storageSettings.values.gateway6 && internetVlan.storageSettings.values.dhcpMode !== 'Client') {
-                                    routes.unshift(
+                                    routes.push(
                                         {
-                                            from: address,
+                                            from: ip,
                                             to: ipv6Default,
                                             via: internetVlan.storageSettings.values.gateway6,
                                             table,
-                                            metric: 100,
                                         }
                                     )
                                 }
                             }
-
                         }
                     }
                 }
 
-                if (gateway6) {
-                    routes.unshift({
-                        to: 'default',
-                        via: gateway6,
-                        table,
-                        metric: 100,
-                    });
-                }
-                if (gateway4) {
-                    routes.unshift({
-                        to: 'default',
-                        via: gateway4,
-                        table,
-                        metric: 100,
-                    });
+                if (gateway4 || gateway6) {
+                    // remove the default route blackhole
+                    routes.splice(routes.indexOf(defaultRoute), 1);
+
+                    for (const address of addresses) {
+                        const [ip] = address.split('/');
+                        if (net.isIPv4(ip) && gateway4) {
+                            routes.push(
+                                {
+                                    from: ip,
+                                    to: ipv4Default,
+                                    via: gateway4,
+                                    table,
+                                }
+                            )
+                        }
+                        else if (net.isIPv6(ip) && gateway6) {
+                            routes.push(
+                                {
+                                    from: ip,
+                                    to: ipv6Default,
+                                    via: gateway6,
+                                    table,
+                                }
+                            )
+                        }
+                    }
                 }
             }
 
@@ -238,27 +259,6 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                 optional: true,
             }
         }
-
-        // for (const [internetInterface, table] of internetMaps.entries()) {
-        //     const internet = netplan.network.ethernets?.[internetInterface] || netplan.network.vlans?.[internetInterface];
-        //     if (!internet) {
-        //         console.warn('Internet interface was not found or is not configured by this netplan', internetInterface);
-        //         continue;
-        //     }
-
-        //     const address = internet.addresses?.[0];
-        //     if (!address)
-        //         continue;
-
-        //     const [via] = address.split('/');
-        //     internet.routes = [
-        //         {
-        //             to: 'default',
-        //             via: via,
-        //             table,
-        //         }
-        //     ];
-        // }
 
         await fs.promises.writeFile(`/etc/netplan/01-scrypted.yaml`, yaml.stringify(netplan), {
             mode: 0o600,
