@@ -151,7 +151,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                             for (const address of addresses as string[]) {
                                 const [ip] = address.split('/');
                                 routingPolicy.push({
-                                    from: ip,
+                                    from: vlan.storageSettings.values.dhcpMode === 'Server' ? address : ip,
                                     table: internetTable,
                                     priority: 2,
                                 } satisfies RoutingPolicy);
