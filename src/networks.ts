@@ -66,8 +66,13 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
             allParents.add(parentInterface);
 
-            const { addresses, dhcpMode, dnsServers, internet, gateway4, gateway6 } = vlan.storageSettings.values;
-            const dhcpClient = dhcpMode === 'Client';
+            let { addresses, dhcpMode, dnsServers, internet, gateway4, gateway6 } = vlan.storageSettings.values;
+            if (vlan.storageSettings.values.gatewayMode !== 'Manual') {
+                gateway4 = undefined;
+                gateway6 = undefined;
+            }
+
+            const dhcpClient = dhcpMode === 'Auto';
             if (!addresses.length && !dhcpClient) {
                 vlan.console.warn('Address is required if DHCP Mode is not Client.');
                 continue;
@@ -151,7 +156,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                             for (const address of addresses as string[]) {
                                 const [ip] = address.split('/');
                                 routingPolicy.push({
-                                    from: vlan.storageSettings.values.dhcpMode === 'Server' ? address : ip,
+                                    from: vlan.storageSettings.values.dhcpServer === 'Enabled' ? address : ip,
                                     table: internetTable,
                                     priority: 2,
                                 } satisfies RoutingPolicy);
@@ -159,7 +164,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
                             for (const address of addresses) {
                                 const [ip] = address.split('/');
-                                if (net.isIPv4(ip) && internetVlan.storageSettings.values.gateway4 && internetVlan.storageSettings.values.dhcpMode !== 'Client') {
+                                if (net.isIPv4(ip) && internetVlan.storageSettings.values.gateway4 && internetVlan.storageSettings.values.dhcpMode !== 'Auto') {
                                     routes.push(
                                         {
                                             from: ip,
@@ -169,7 +174,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                                         }
                                     )
                                 }
-                                else if (net.isIPv6(ip) && internetVlan.storageSettings.values.gateway6 && internetVlan.storageSettings.values.dhcpMode !== 'Client') {
+                                else if (net.isIPv6(ip) && internetVlan.storageSettings.values.gateway6 && internetVlan.storageSettings.values.dhcpMode !== 'Auto') {
                                     routes.push(
                                         {
                                             from: ip,

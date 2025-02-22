@@ -27,28 +27,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
                 return nv;
             },
         },
-        addresses: {
-            title: 'Addresses',
-            type: 'string',
-            description: 'The IP addresses of this network interface. The Addresses are ignored if the DHCP Mode is Client.',
-            placeholder: '192.168.10.1/24',
-            multiple: true,
-            choices: [],
-            combobox: true,
-            defaultValue: [],
-        },
-        gateway4: {
-            title: 'Gateway IPv4',
-            type: 'string',
-            description: 'The IPv4 gateway for this network interface.',
-            placeholder: '192.168.10.1',
-        },
-        gateway6: {
-            title: 'Gateway IPv6',
-            type: 'string',
-            description: 'The IPv6 gateway for this network interface.',
-            placeholder: '2001:db8::1',
-        },
+
         dnsServers: {
             title: 'DNS Servers',
             type: 'string',
@@ -59,57 +38,107 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
                 // cloudflare
                 '1.1.1.1',
                 '1.0.0.1',
+                '2606:4700:4700::1111',
+                '2606:4700:4700::1001',
+
                 // google
                 '8.8.8.8',
                 '8.8.4.4',
+                '2001:4860:4860::8888',
+                '2001:4860:4860::8844',
             ],
             defaultValue: [
             ],
         },
-        internet: {
-            title: 'Internet',
-            description: 'The network interface that provides internet access to this network interface.',
-            defaultValue: 'Disabled',
-        },
+
         dhcpMode: {
-            title: 'DHCP Mode',
-            description: 'The DHCP mode to use for this network interface.',
+            title: 'Address Configuration',
+            description: 'The Address Configuration to use for this network interface.',
             choices: [
-                'None',
-                'Server',
-                'Client',
+                'Auto',
+                'Manual',
             ],
-            defaultValue: 'None',
+            defaultValue: 'Manual',
+            type: 'radiopanel',
         },
+        addresses: {
+            title: 'Address',
+            radioGroups: ['Manual'],
+            type: 'string',
+            description: 'IPv4 or IPv6 address of this network interface.',
+            placeholder: 'E.g.: 192.168.10.1/24, 2001:abc:def::de/64',
+            multiple: true,
+            defaultValue: [],
+        },
+
+        gatewayMode: {
+            title: 'Internet Gateway',
+            radioGroups: ['Manual'],
+            type: 'radiobutton',
+            choices: ['Disabled', 'Local Interface', 'Manual'],
+        },
+
+        internet: {
+            title: 'Local Interface',
+            radioGroups: ['Local Interface'],
+            description: 'The local interface that acts as a internet gateway for this network.',
+        },
+
+        gateway4: {
+            title: 'Gateway IPv4',
+            radioGroups: ['Internet Gateway:Manual'],
+            type: 'string',
+            description: 'The IPv4 gateway for this network interface.',
+            placeholder: '192.168.10.1',
+        },
+
+        gateway6: {
+            title: 'Gateway IPv6',
+            radioGroups: ['Internet Gateway:Manual'],
+            type: 'string',
+            description: 'The IPv6 gateway for this network interface.',
+            placeholder: '2001:db8::1',
+        },
+
         dhcp4: {
-            group: 'DHCP Client',
             title: 'DHCPv4',
+            radioGroups: ['Auto'],
             type: 'boolean',
             description: 'Enable DHCPv4 for this network interface.',
             defaultValue: true,
         },
         dhcp6: {
-            group: 'DHCP Client',
             title: 'DHCPv6',
+            radioGroups: ['Auto'],
             type: 'boolean',
             description: 'Enable DHCPv6 for this network interface.',
             defaultValue: true,
         },
         acceptRa: {
-            group: 'DHCP Client',
             title: 'Accept Router Advertisements',
+            radioGroups: ['Auto'],
             type: 'boolean',
             description: 'Accept Router Advertisements for this network interface.',
             defaultValue: true,
         },
+
+        dhcpServer: {
+            title: 'DHCP Server',
+            type: 'radiobutton',
+            radioGroups: ['Manual'],
+            choices: ['Enabled', 'Disabled'],
+            description: 'Enable DHCP server for this network interface. This will override the DHCP Client setting.',
+            defaultValue: false,
+        },
         dhcpRanges: {
-            group: 'DHCP Server',
             title: 'DHCP Server Ranges',
+            radioGroups: ['Enabled'],
             type: 'string',
             description: 'The DHCP range to use for this network interface. If not specified, a default range between will be used. E.g.: 192.168.10.10,192.168.10.200,12h',
             placeholder: '192.168.10.10,192.168.10.200,12h',
             multiple: true,
         },
+
         applyChanges: {
             title: 'Apply Changes',
             type: 'button',
@@ -139,7 +168,6 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
             disallowed.add(this.storageSettings.values.parentInterface);
             return {
                 choices: [
-                    'Disabled',
                     ...Object.keys(os.networkInterfaces()).filter(k => !disallowed.has(k)),
                 ],
             }
@@ -165,7 +193,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
         else {
             // await ifup(interfaceName, this.console);
 
-            if (this.storageSettings.values.dhcpMode !== 'Server') {
+            if (this.storageSettings.values.dhcpMode !== 'Manual + DHCP Server') {
                 await removeServiceFile('vlan', this.nativeId!, this.console);
             }
             else {
@@ -237,39 +265,44 @@ WantedBy=multi-user.target`;
         // iptables -A FORWARD -i eth1.10 -o eth0 -j ACCEPT
         // iptables -A FORWARD -i eth0 -o eth1.10 -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-        if (this.storageSettings.values.internet !== 'Disabled') {
-            let [internetInterface, internetVlanId] = this.storageSettings.values.internet.split('.');
-            internetVlanId ||= 1;
+        if (this.storageSettings.values.gatewayMode !== 'Local Interface') {
+            if (!this.storageSettings.values.internet) {
+                this.console.warn('Local Interface is is unconfigured.');
+            }
+            else {
+                let [, internetVlanId] = this.storageSettings.values.internet.split('.');
+                internetVlanId ||= 1;
 
-            for (const ipvtables of ['iptables', 'ip6tables']) {
-                // create a chain for each vlan
-                await runCommand(ipvtables, ['-t', 'nat', '-N', this.nativeId!], this.console);
-                await runCommand(ipvtables, ['-N', this.nativeId!], this.console);
+                for (const ipvtables of ['iptables', 'ip6tables']) {
+                    // create a chain for each vlan
+                    await runCommand(ipvtables, ['-t', 'nat', '-N', this.nativeId!], this.console);
+                    await runCommand(ipvtables, ['-N', this.nativeId!], this.console);
 
-                // flush the chain
-                await runCommand(ipvtables, ['-t', 'nat', '-F', this.nativeId!], this.console);
-                await runCommand(ipvtables, ['-F', this.nativeId!], this.console);
+                    // flush the chain
+                    await runCommand(ipvtables, ['-t', 'nat', '-F', this.nativeId!], this.console);
+                    await runCommand(ipvtables, ['-F', this.nativeId!], this.console);
 
-                // no need to do any ip6tables if the vlan matches.
-                // routing is necessary on vlan mismatch
-                if (ipvtables === 'ip6tables' && this.storageSettings.values.vlanId === internetVlanId)
-                    continue;
+                    // no need to do any ip6tables if the vlan matches.
+                    // routing is necessary on vlan mismatch
+                    if (ipvtables === 'ip6tables' && this.storageSettings.values.vlanId === internetVlanId)
+                        continue;
 
-                // delete jump chains
-                await runCommand(ipvtables, ['-t', 'nat', '-D', 'POSTROUTING', '-o', this.storageSettings.values.internet, '-j', this.nativeId!], this.console);
-                await runCommand(ipvtables, ['-D', 'FORWARD', '-j', this.nativeId!], this.console);
+                    // delete jump chains
+                    await runCommand(ipvtables, ['-t', 'nat', '-D', 'POSTROUTING', '-o', this.storageSettings.values.internet, '-j', this.nativeId!], this.console);
+                    await runCommand(ipvtables, ['-D', 'FORWARD', '-j', this.nativeId!], this.console);
 
-                // set up the jump chains
-                await runCommand(ipvtables, ['-t', 'nat', '-A', 'POSTROUTING', '-o', this.storageSettings.values.internet, '-j', this.nativeId!], this.console);
-                await runCommand(ipvtables, ['-A', 'FORWARD', '-j', this.nativeId!], this.console);
+                    // set up the jump chains
+                    await runCommand(ipvtables, ['-t', 'nat', '-A', 'POSTROUTING', '-o', this.storageSettings.values.internet, '-j', this.nativeId!], this.console);
+                    await runCommand(ipvtables, ['-A', 'FORWARD', '-j', this.nativeId!], this.console);
 
-                // masquerade
-                await runCommand(ipvtables, ['-t', 'nat', '-A', this.nativeId!, '-o', this.storageSettings.values.internet, '-j', 'MASQUERADE'], this.console);
+                    // masquerade
+                    await runCommand(ipvtables, ['-t', 'nat', '-A', this.nativeId!, '-o', this.storageSettings.values.internet, '-j', 'MASQUERADE'], this.console);
 
-                // setup forwarding
-                await runCommand(ipvtables, ['-A', this.nativeId!, '-i', interfaceName, '-o', this.storageSettings.values.internet, '-j', 'ACCEPT'], this.console);
-                await runCommand(ipvtables, ['-A', this.nativeId!, '-i', this.storageSettings.values.internet, '-o', interfaceName, '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], this.console);
+                    // setup forwarding
+                    await runCommand(ipvtables, ['-A', this.nativeId!, '-i', interfaceName, '-o', this.storageSettings.values.internet, '-j', 'ACCEPT'], this.console);
+                    await runCommand(ipvtables, ['-A', this.nativeId!, '-i', this.storageSettings.values.internet, '-o', interfaceName, '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], this.console);
 
+                }
             }
         }
     }
