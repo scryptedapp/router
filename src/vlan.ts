@@ -193,7 +193,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
         else {
             // await ifup(interfaceName, this.console);
 
-            if (this.storageSettings.values.dhcpMode !== 'Manual + DHCP Server') {
+            if (this.storageSettings.values.dhcpMode !== 'Manual' || this.storageSettings.values.dhcpServer !== 'Enabled') {
                 await removeServiceFile('vlan', this.nativeId!, this.console);
             }
             else {
@@ -265,7 +265,7 @@ WantedBy=multi-user.target`;
         // iptables -A FORWARD -i eth1.10 -o eth0 -j ACCEPT
         // iptables -A FORWARD -i eth0 -o eth1.10 -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-        if (this.storageSettings.values.gatewayMode !== 'Local Interface') {
+        if (this.storageSettings.values.gatewayMode === 'Local Interface') {
             if (!this.storageSettings.values.internet) {
                 this.console.warn('Local Interface is is unconfigured.');
             }
