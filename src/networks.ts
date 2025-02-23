@@ -290,16 +290,15 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         });
         await runCommand('netplan', ['apply'], console);
 
+        for (const vlan of bringup) {
+            await vlan.initializeNetworkInterface();
+        }
 
         const dhClientScript = generateDhClientHooks(pairs);
         await fs.promises.writeFile(`/etc/dhcp/dhclient-exit-hooks.d/scrypted`, dhClientScript, {
             mode: 0o755,
         });
         await runCommand('dhclient', [], console);
-
-        for (const vlan of bringup) {
-            await vlan.initializeNetworkInterface();
-        }
     }
 
     async releaseDevice(id: string, nativeId: ScryptedNativeId) {
