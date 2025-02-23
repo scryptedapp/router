@@ -9,6 +9,7 @@ import yaml from 'yaml';
 import { EthernetInterface, NetplanConfig, Route, RoutingPolicy, VlanInterface } from "./netplan";
 import { runCommand } from "./cli";
 import os from 'os';
+import { generateDhClientHooks } from './dh-client';
 export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator {
     vlans = new Map<string, Vlan>();
 
@@ -50,6 +51,8 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
         const ipv4Default = '0.0.0.0/0';
         const ipv6Default = '::/0';
+
+        const pairs: { wanInterface: string; fromIp: string; table: number }[] = [];
 
         for (const vlan of this.vlans.values()) {
             const vlanId = vlan.storageSettings.values.vlanId;
@@ -162,27 +165,44 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                                 } satisfies RoutingPolicy);
                             }
 
-                            for (const address of addresses) {
-                                const [ip] = address.split('/');
-                                if (net.isIPv4(ip) && internetVlan.storageSettings.values.gateway4 && internetVlan.storageSettings.values.dhcpMode !== 'Auto') {
-                                    routes.push(
-                                        {
-                                            from: ip,
-                                            to: ipv4Default,
-                                            via: internetVlan.storageSettings.values.gateway4,
-                                            table,
-                                        }
-                                    )
+                            if (internetVlan.storageSettings.values.dhcpMode !== 'Auto') {
+                                for (const address of addresses) {
+                                    const [ip] = address.split('/');
+                                    if (net.isIPv4(ip) && internetVlan.storageSettings.values.gateway4) {
+                                        routes.push(
+                                            {
+                                                from: ip,
+                                                to: ipv4Default,
+                                                via: internetVlan.storageSettings.values.gateway4,
+                                                table,
+                                            }
+                                        )
+                                    }
+                                    else if (net.isIPv6(ip) && internetVlan.storageSettings.values.gateway6) {
+                                        routes.push(
+                                            {
+                                                from: ip,
+                                                to: ipv6Default,
+                                                via: internetVlan.storageSettings.values.gateway6,
+                                                table,
+                                            }
+                                        )
+                                    }
                                 }
-                                else if (net.isIPv6(ip) && internetVlan.storageSettings.values.gateway6 && internetVlan.storageSettings.values.dhcpMode !== 'Auto') {
-                                    routes.push(
-                                        {
-                                            from: ip,
-                                            to: ipv6Default,
-                                            via: internetVlan.storageSettings.values.gateway6,
-                                            table,
-                                        }
-                                    )
+                            }
+                            else {
+                                const wanInterface = getInterfaceName(internetVlan.storageSettings.values.parentInterface, internetVlan.storageSettings.values.vlanId);
+
+                                // need to hook dhclient and set the route manually.
+                                // one option is to call this plugin, but the better option is probably to
+                                // set the route table manually.
+                                for (const address of addresses) {
+                                    const [fromIp] = address.split('/');
+                                    pairs.push({
+                                        wanInterface,
+                                        fromIp,
+                                        table: internetTable,
+                                    } satisfies { wanInterface: string; fromIp: string; table: number });
                                 }
                             }
                         }
@@ -269,6 +289,13 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             mode: 0o600,
         });
         await runCommand('netplan', ['apply'], console);
+
+
+        const dhClientScript = generateDhClientHooks(pairs);
+        await fs.promises.writeFile(`/etc/dhcp/dhclient-exit-hooks.d/scrypted`, dhClientScript, {
+            mode: 0o755,
+        });
+        await runCommand('dhclient', [], console);
 
         for (const vlan of bringup) {
             await vlan.initializeNetworkInterface();
