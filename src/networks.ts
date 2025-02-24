@@ -55,6 +55,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
         const dhclientPairs: { wanInterface: string; fromIp: string; table: number }[] = [];
         const nftablesPairs: {
+            nativeId: string,
             ipVersion: 'ip' | 'ip6',
             wanInterface: string;
             lanInterface: string
@@ -142,9 +143,8 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                 }
 
                 if (gatewayMode !== 'Disabled') {
-                    // don't fail hard if this is misconfigured.
                     if (gateway4 || gateway6) {
-                        vlan.console.warn('Internet is enabled, but a gateway was provided. Preferring gateway.');
+                        // fall through to use this instead.
                     }
                     else {
                         const internetVlan = [...this.vlans.values()].find(v => getInterfaceName(v.storageSettings.values.parentInterface, v.storageSettings.values.vlanId) === internet);
@@ -169,6 +169,29 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                                     table: internetTable,
                                     priority: 2,
                                 } satisfies RoutingPolicy);
+                            }
+
+                            // iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+                            // iptables -A FORWARD -i eth1.10 -o eth0 -j ACCEPT
+                            // iptables -A FORWARD -i eth0 -o eth1.10 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+                            const wanInterface = getInterfaceName(internetVlan.storageSettings.values.parentInterface, internetVlan.storageSettings.values.vlanId);
+                            nftablesPairs.push({
+                                nativeId: vlan.nativeId!,
+                                ipVersion: 'ip',
+                                wanInterface,
+                                lanInterface: interfaceName
+                            });
+
+                            // no need to do any ip6tables if the vlan matches.
+                            // routing is necessary on vlan mismatch
+                            if (vlan.storageSettings.values.vlanId !== internetVlan.storageSettings.values.vlanId) {
+                                nftablesPairs.push({
+                                    nativeId: vlan.nativeId!,
+                                    ipVersion: 'ip6',
+                                    wanInterface,
+                                    lanInterface: interfaceName
+                                });
                             }
 
                             if (internetVlan.storageSettings.values.dhcpMode !== 'Auto') {
@@ -197,24 +220,6 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                                 }
                             }
                             else {
-                                const wanInterface = getInterfaceName(internetVlan.storageSettings.values.parentInterface, internetVlan.storageSettings.values.vlanId);
-
-                                nftablesPairs.push({
-                                    ipVersion: 'ip',
-                                    wanInterface,
-                                    lanInterface: interfaceName
-                                });
-
-                                // no need to do any ip6tables if the vlan matches.
-                                // routing is necessary on vlan mismatch
-                                if (vlan.storageSettings.values.vlanId !== internetVlan.storageSettings.values.vlanId) {
-                                    nftablesPairs.push({
-                                        ipVersion: 'ip6',
-                                        wanInterface,
-                                        lanInterface: interfaceName
-                                    });
-                                }
-
                                 // need to hook dhclient and set the route manually.
                                 // one option is to call this plugin, but the better option is probably to
                                 // set the route table manually.
