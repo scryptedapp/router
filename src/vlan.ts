@@ -260,50 +260,5 @@ WantedBy=multi-user.target`;
                 }
             }
         }
-
-        // iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-        // iptables -A FORWARD -i eth1.10 -o eth0 -j ACCEPT
-        // iptables -A FORWARD -i eth0 -o eth1.10 -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-        if (this.storageSettings.values.gatewayMode === 'Local Interface') {
-            if (!this.storageSettings.values.internet) {
-                this.console.warn('Local Interface is is unconfigured.');
-            }
-            else {
-                let [, internetVlanId] = this.storageSettings.values.internet.split('.');
-                internetVlanId ||= 1;
-
-                for (const ipvtables of ['iptables', 'ip6tables']) {
-                    // create a chain for each vlan
-                    await runCommand(ipvtables, ['-t', 'nat', '-N', this.nativeId!], this.console);
-                    await runCommand(ipvtables, ['-N', this.nativeId!], this.console);
-
-                    // flush the chain
-                    await runCommand(ipvtables, ['-t', 'nat', '-F', this.nativeId!], this.console);
-                    await runCommand(ipvtables, ['-F', this.nativeId!], this.console);
-
-                    // no need to do any ip6tables if the vlan matches.
-                    // routing is necessary on vlan mismatch
-                    if (ipvtables === 'ip6tables' && this.storageSettings.values.vlanId === internetVlanId)
-                        continue;
-
-                    // delete jump chains
-                    await runCommand(ipvtables, ['-t', 'nat', '-D', 'POSTROUTING', '-o', this.storageSettings.values.internet, '-j', this.nativeId!], this.console);
-                    await runCommand(ipvtables, ['-D', 'FORWARD', '-j', this.nativeId!], this.console);
-
-                    // set up the jump chains
-                    await runCommand(ipvtables, ['-t', 'nat', '-A', 'POSTROUTING', '-o', this.storageSettings.values.internet, '-j', this.nativeId!], this.console);
-                    await runCommand(ipvtables, ['-A', 'FORWARD', '-j', this.nativeId!], this.console);
-
-                    // masquerade
-                    await runCommand(ipvtables, ['-t', 'nat', '-A', this.nativeId!, '-o', this.storageSettings.values.internet, '-j', 'MASQUERADE'], this.console);
-
-                    // setup forwarding
-                    await runCommand(ipvtables, ['-A', this.nativeId!, '-i', interfaceName, '-o', this.storageSettings.values.internet, '-j', 'ACCEPT'], this.console);
-                    await runCommand(ipvtables, ['-A', this.nativeId!, '-i', this.storageSettings.values.internet, '-o', interfaceName, '-m', 'state', '--state', 'RELATED,ESTABLISHED', '-j', 'ACCEPT'], this.console);
-
-                }
-            }
-        }
     }
 }

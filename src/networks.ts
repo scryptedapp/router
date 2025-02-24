@@ -9,7 +9,8 @@ import yaml from 'yaml';
 import { EthernetInterface, NetplanConfig, Route, RoutingPolicy, VlanInterface } from "./netplan";
 import { runCommand } from "./cli";
 import os from 'os';
-import { generateDhClientHooks } from './dh-client';
+import { generateDhClientHooks } from './dhclient';
+import { generateNftablesConf } from './nftables';
 export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator {
     vlans = new Map<string, Vlan>();
 
@@ -52,7 +53,12 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         const ipv4Default = '0.0.0.0/0';
         const ipv6Default = '::/0';
 
-        const pairs: { wanInterface: string; fromIp: string; table: number }[] = [];
+        const dhclientPairs: { wanInterface: string; fromIp: string; table: number }[] = [];
+        const nftablesPairs: {
+            ipVersion: 'ip' | 'ip6',
+            wanInterface: string;
+            lanInterface: string
+        }[] = [];
 
         for (const vlan of this.vlans.values()) {
             const vlanId = vlan.storageSettings.values.vlanId;
@@ -193,12 +199,28 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                             else {
                                 const wanInterface = getInterfaceName(internetVlan.storageSettings.values.parentInterface, internetVlan.storageSettings.values.vlanId);
 
+                                nftablesPairs.push({
+                                    ipVersion: 'ip',
+                                    wanInterface,
+                                    lanInterface: interfaceName
+                                });
+
+                                // no need to do any ip6tables if the vlan matches.
+                                // routing is necessary on vlan mismatch
+                                if (vlan.storageSettings.values.vlanId !== internetVlan.storageSettings.values.vlanId) {
+                                    nftablesPairs.push({
+                                        ipVersion: 'ip6',
+                                        wanInterface,
+                                        lanInterface: interfaceName
+                                    });
+                                }
+
                                 // need to hook dhclient and set the route manually.
                                 // one option is to call this plugin, but the better option is probably to
                                 // set the route table manually.
                                 for (const address of addresses) {
                                     const [fromIp] = address.split('/');
-                                    pairs.push({
+                                    dhclientPairs.push({
                                         wanInterface,
                                         fromIp,
                                         table: internetTable,
@@ -294,11 +316,17 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             await vlan.initializeNetworkInterface();
         }
 
-        const dhClientScript = generateDhClientHooks(pairs);
+        const dhClientScript = generateDhClientHooks(dhclientPairs);
         await fs.promises.writeFile(`/etc/dhcp/dhclient-exit-hooks.d/scrypted`, dhClientScript, {
             mode: 0o755,
         });
         await runCommand('dhclient', [], console);
+
+        const nftablesConf = generateNftablesConf(nftablesPairs);
+        await fs.promises.writeFile(`/etc/nftables.d/scrypted.conf`, nftablesConf, {
+            mode: 0o600,
+        });
+        await runCommand('nft', ['-f', '/etc/nftables.d/scrypted.conf'], console);
     }
 
     async releaseDevice(id: string, nativeId: ScryptedNativeId) {
