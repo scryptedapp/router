@@ -77,6 +77,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
             let { addresses, dhcpMode, dnsServers, internet, gateway4, gateway6 } = vlan.storageSettings.values;
             if (vlan.storageSettings.values.gatewayMode !== 'Manual') {
+                internet = undefined;
                 gateway4 = undefined;
                 gateway6 = undefined;
             }
