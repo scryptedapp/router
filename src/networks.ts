@@ -75,9 +75,8 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
             allParents.add(parentInterface);
 
-            let { addresses, dhcpMode, dnsServers, internet, gateway4, gateway6 } = vlan.storageSettings.values;
-            if (vlan.storageSettings.values.gatewayMode !== 'Manual') {
-                internet = undefined;
+            let { addresses, dhcpMode, dnsServers, internet, gateway4, gateway6, gatewayMode } = vlan.storageSettings.values;
+            if (gatewayMode !== 'Manual') {
                 gateway4 = undefined;
                 gateway6 = undefined;
             }
@@ -142,7 +141,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                     } satisfies RoutingPolicy);
                 }
 
-                if (internet !== 'Disabled') {
+                if (gatewayMode !== 'Disabled') {
                     // don't fail hard if this is misconfigured.
                     if (gateway4 || gateway6) {
                         vlan.console.warn('Internet is enabled, but a gateway was provided. Preferring gateway.');
