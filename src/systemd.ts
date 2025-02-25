@@ -1,8 +1,6 @@
-import {once} from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import child_process, { ChildProcess } from 'child_process';
-import { logToConsoleAndWait, runCommand } from './cli';
+import { runCommand } from './cli';
 
 async function runSystemctlCommand(command: string, args: string[], console: Console) {
     return runCommand('systemctl', [command, ...args], console);
