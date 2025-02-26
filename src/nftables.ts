@@ -84,10 +84,14 @@ export function generatePortForward(pairs: {
     pairs.forEach(pair => {
         const { ipVersion, wanInterface, protocol, srcPort, dstIp, dstPort } = pair;
 
+        let actualProto: string = protocol;
+        if (protocol === 'tcp + udp') 
+            actualProto = 'meta l4proto { tcp, udp } th'
+
         config += `
 table ${ipVersion} nat {
     chain prerouting_scrypted {
-        iif "${wanInterface}" ${protocol} dport ${srcPort} dnat to ${dstIp}:${dstPort}
+        iif "${wanInterface}" ${actualProto} dport ${srcPort} dnat to ${dstIp}:${dstPort}
     }
 }
 `;
