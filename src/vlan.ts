@@ -1,14 +1,12 @@
 import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedNativeId, ScryptedSystemDevice, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
+import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
-import { ifdown } from "./ifupdown";
 import { getInterfaceName } from './interface-name';
 import type { Networks } from "./networks";
-import { getServiceFile, removeServiceFile, systemctlDaemonReload, systemctlEnable, systemctlRestart } from "./systemd";
-import { runCommand } from "./cli";
-import crypto from 'crypto';
 import { getPortForwardSettings, PortForward } from "./portforward";
+import { getServiceFile, removeServiceFile, systemctlDaemonReload, systemctlEnable, systemctlRestart } from "./systemd";
 
 export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider, DeviceCreator, ScryptedSystemDevice {
     storageSettings = new StorageSettings(this, {
@@ -231,7 +229,6 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         const serviceFile = getServiceFile('vlan', this.nativeId!);
 
         if (!this.storageSettings.values.parentInterface || !this.storageSettings.values.parentInterface) {
-            await ifdown(interfaceName, this.console)
             await removeServiceFile('vlan', this.nativeId!, this.console);
         }
         else {
