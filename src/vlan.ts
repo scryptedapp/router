@@ -1,4 +1,4 @@
-import { ScryptedDeviceBase, ScryptedNativeId, Setting, Settings, SettingValue } from "@scrypted/sdk";
+import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedNativeId, ScryptedSystemDevice, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import fs from 'fs';
 import os from 'os';
@@ -7,8 +7,10 @@ import { getInterfaceName } from './interface-name';
 import type { Networks } from "./networks";
 import { getServiceFile, removeServiceFile, systemctlDaemonReload, systemctlEnable, systemctlRestart } from "./systemd";
 import { runCommand } from "./cli";
+import crypto from 'crypto';
+import { getPortForwardSettings, PortForward } from "./portforward";
 
-export class Vlan extends ScryptedDeviceBase implements Settings {
+export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider, DeviceCreator, ScryptedSystemDevice {
     storageSettings = new StorageSettings(this, {
         parentInterface: {
             title: 'Network Interface',
@@ -172,6 +174,48 @@ export class Vlan extends ScryptedDeviceBase implements Settings {
                 ],
             }
         };
+
+        this.systemDevice = {
+            deviceCreator: 'Port Forward',
+        }
+    }
+
+    async getDevice(nativeId: ScryptedNativeId) {
+        return new PortForward(nativeId);
+    }
+
+    async releaseDevice(id: string, nativeId: ScryptedNativeId): Promise<void> {
+
+    }
+
+    async getCreateDeviceSettings(): Promise<Setting[]> {
+        const ret = getPortForwardSettings(this);
+        const settings = await ret.getSettings();
+        settings.unshift({
+            key: 'name',
+            title: 'Name',
+            description: 'Friendly name for this port forward rule.',
+        });
+        return settings;
+    }
+
+    async createDevice(settings: DeviceCreatorSettings): Promise<string> {
+        const nativeId = `pf${crypto.randomBytes(2).toString('hex')}`;
+        const id = await sdk.deviceManager.onDeviceDiscovered({
+            providerNativeId: this.nativeId,
+            name: settings?.name as string,
+            nativeId,
+            type: "Port Forward" as ScryptedDeviceType,
+            interfaces: [
+                ScryptedInterface.Settings
+            ],
+        });
+        const portForward = new PortForward(nativeId);
+        portForward.storageSettings.values.protocol = settings.protocol;
+        portForward.storageSettings.values.srcPort = settings.srcPort;
+        portForward.storageSettings.values.dstIp = settings.dstIp;
+        portForward.storageSettings.values.dstPort = settings.dstPort;
+        return id;
     }
 
     getSettings(): Promise<Setting[]> {

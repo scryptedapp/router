@@ -10,7 +10,8 @@ import { EthernetInterface, NetplanConfig, Route, RoutingPolicy, VlanInterface }
 import { runCommand } from "./cli";
 import os from 'os';
 import { generateDhClientHooks } from './dhclient';
-import { generateNftablesConf } from './nftables';
+import { generatePortForward as generatePortForwards, generateWanGateway } from './nftables';
+import { PortForward } from './portforward';
 export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator {
     vlans = new Map<string, Vlan>();
 
@@ -54,11 +55,20 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         const ipv6Default = '::/0';
 
         const dhclientPairs: { wanInterface: string; fromIp: string; table: number }[] = [];
-        const nftablesPairs: {
+        const nftablesWanGateways: {
             nativeId: string,
             ipVersion: 'ip' | 'ip6',
             wanInterface: string;
             lanInterface: string
+        }[] = [];
+
+        const nftablesPortForwards: {
+            ipVersion: 'ip' | 'ip6',
+            wanInterface: string;
+            protocol: 'tcp' | 'udp' | 'tcp + udp' | 'https';
+            srcPort: string;
+            dstIp: string;
+            dstPort: number
         }[] = [];
 
         for (const vlan of this.vlans.values()) {
@@ -87,7 +97,6 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                 vlan.console.warn('Address is required if DHCP Mode is not Client.');
                 continue;
             }
-
 
             const dhcp4 = dhcpClient && !!vlan.storageSettings.values.dhcp4;
             const dhcp6 = dhcpClient && !!vlan.storageSettings.values.dhcp6;
@@ -176,7 +185,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                             // iptables -A FORWARD -i eth0 -o eth1.10 -m state --state RELATED,ESTABLISHED -j ACCEPT
 
                             const wanInterface = getInterfaceName(internetVlan.storageSettings.values.parentInterface, internetVlan.storageSettings.values.vlanId);
-                            nftablesPairs.push({
+                            nftablesWanGateways.push({
                                 nativeId: vlan.nativeId!,
                                 ipVersion: 'ip',
                                 wanInterface,
@@ -186,7 +195,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                             // no need to do any ip6tables if the vlan matches.
                             // routing is necessary on vlan mismatch
                             if (vlan.storageSettings.values.vlanId !== internetVlan.storageSettings.values.vlanId) {
-                                nftablesPairs.push({
+                                nftablesWanGateways.push({
                                     nativeId: vlan.nativeId!,
                                     ipVersion: 'ip6',
                                     wanInterface,
@@ -300,14 +309,34 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                     "use-domains": false,
                 },
             } satisfies EthernetInterface | VlanInterface);
+
+            for (const nativeId of sdk.deviceManager.getNativeIds()) {
+                if (!nativeId?.startsWith('pf')) 
+                    continue;
+                const device = sdk.systemManager.getDeviceById(this.pluginId, nativeId);
+                if (device.providerId !== vlan.id)
+                    continue;
+                const portforward = await vlan.getDevice(nativeId) as PortForward;
+                const { srcPort, dstIp, dstPort, protocol } = portforward.storageSettings.values;
+                if (!srcPort || !dstIp || !dstPort || !protocol) {
+                    portforward.console.warn('Source Port, Destination IP, and Destination Port are required.');
+                    continue;
+                }
+                nftablesPortForwards.push({
+                    ipVersion: 'ip',
+                    wanInterface: interfaceName,
+                    protocol,
+                    srcPort,
+                    dstIp,
+                    dstPort,
+                });
+            }
         }
 
         for (const parentInterface of needParentInterfaces) {
             if (netplan.network.ethernets![parentInterface])
                 continue;
             netplan.network.ethernets![parentInterface] = {
-                dhcp4: false,
-                dhcp6: false,
                 optional: true,
             }
         }
@@ -327,11 +356,11 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         });
         await runCommand('dhclient', [], console);
 
-        const nftablesConf = generateNftablesConf(nftablesPairs);
-        await fs.promises.writeFile(`/etc/nftables.d/scrypted.conf`, nftablesConf, {
+        const nftablesConf = generateWanGateway(nftablesWanGateways) + generatePortForwards(nftablesPortForwards);
+        await fs.promises.writeFile(`/etc/nftables.d/02-scrypted.conf`, nftablesConf, {
             mode: 0o600,
         });
-        await runCommand('nft', ['-f', '/etc/nftables.d/scrypted.conf'], console);
+        await runCommand('nft', ['-f', '/etc/nftables.d/02-scrypted.conf'], console);
     }
 
     async releaseDevice(id: string, nativeId: ScryptedNativeId) {
@@ -394,7 +423,10 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             nativeId,
             providerNativeId: this.nativeId,
             interfaces: [
+                ScryptedInterface.DeviceProvider,
+                ScryptedInterface.DeviceCreator,
                 ScryptedInterface.Settings,
+                ScryptedInterface.ScryptedSystemDevice,
             ],
             type: "Network" as ScryptedDeviceType,
             name,
