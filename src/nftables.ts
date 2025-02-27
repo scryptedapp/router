@@ -88,7 +88,15 @@ export function generatePortForward(pairs: {
         if (protocol === 'tcp + udp') 
             actualProto = 'meta l4proto { tcp, udp } th'
 
+        //         iif "${wanInterface}" oif ${lanInterface} ${actualProto} ip daddr ${dstIp} dport ${dstPort} accept
+
         config += `
+table ${ipVersion} filter {
+    chain forward_scrypted {
+        iif "${wanInterface}" ip daddr ${dstIp} ${actualProto} dport ${dstPort} accept
+    }
+}
+
 table ${ipVersion} nat {
     chain prerouting_scrypted {
         iif "${wanInterface}" ${actualProto} dport ${srcPort} dnat to ${dstIp}:${dstPort}
