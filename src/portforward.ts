@@ -32,6 +32,15 @@ export class PortForward extends ScryptedDeviceBase implements Settings {
 
     constructor(nativeId: ScryptedNativeId) {
         super(nativeId);
+
+        this.updateInfo();
+    }
+
+    updateInfo() {
+        this.info = {
+            col1: `${this.storageSettings.values.protocol || 'unconfigured'} port ${this.storageSettings.values.srcPort || 'unconfigured'}`,
+            col2: `to ${this.storageSettings.values.dstIp || 'unconfigured ip'}:${this.storageSettings.values.dstPort || 'unconfigured port'}`,
+        }
     }
 
     async getSettings() {
@@ -40,5 +49,6 @@ export class PortForward extends ScryptedDeviceBase implements Settings {
 
     async putSetting(key: string, value: SettingValue): Promise<void> {
         await this.storageSettings.putSetting(key, value);
+        this.updateInfo();
     }
 }
