@@ -6,7 +6,7 @@ import os from 'os';
 import { getInterfaceName } from './interface-name';
 import type { Networks } from "./networks";
 import { getPortForwardSettings, PortForward } from "./portforward";
-import { getServiceFile, removeServiceFile, systemctlDaemonReload, systemctlEnable, systemctlRestart } from "./systemd";
+import { getServiceFile, removeServiceFile, systemctlDaemonReload, systemctlDisable, systemctlEnable, systemctlRestart, systemctlStop } from "./systemd";
 
 export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider, DeviceCreator, ScryptedSystemDevice {
     storageSettings = new StorageSettings(this, {
@@ -176,6 +176,8 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         this.systemDevice = {
             deviceCreator: 'Port Forward',
         }
+
+        this.updateInfo();
     }
 
     async getDevice(nativeId: ScryptedNativeId) {
@@ -183,7 +185,10 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
     }
 
     async releaseDevice(id: string, nativeId: ScryptedNativeId): Promise<void> {
-
+        await systemctlDisable('vlan', nativeId!, this.console);
+        await systemctlStop('vlan', nativeId!, this.console);
+        await removeServiceFile('vlan', nativeId!, this.console);
+        await systemctlDaemonReload(this.console);
     }
 
     async getCreateDeviceSettings(): Promise<Setting[]> {
@@ -220,8 +225,48 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         return this.storageSettings.getSettings();
     }
 
-    putSetting(key: string, value: SettingValue): Promise<void> {
-        return this.storageSettings.putSetting(key, value);
+    async putSetting(key: string, value: SettingValue): Promise<void> {
+        await this.storageSettings.putSetting(key, value);
+
+        this.updateInfo();
+    }
+
+    updateInfo() {
+        // const interfaces = [
+        //     ScryptedInterface.Settings,
+        //     ScryptedInterface.ScryptedSystemDevice,
+        // ];
+
+        // if (this.type === 'Internet' as ScryptedDeviceType) {
+        //     interfaces.push(
+        //         ScryptedInterface.DeviceProvider,
+        //         ScryptedInterface.DeviceCreator,
+        //     );
+        // }
+
+        // sdk.deviceManager.onDeviceDiscovered({
+        //     providerNativeId: this.networks.nativeId,
+        //     interfaces,
+        //     type: this.type!,
+        //     name: this.providedName!,
+        //     nativeId: this.nativeId,
+        // });
+
+        this.info = {
+            col1: `VLAN ${this.storageSettings.values.vlanId} on ${this.storageSettings.values.parentInterface}`,
+            col2: `${this.storageSettings.values.addresses.join(', ') || 'unconfigured'}`,
+        }
+
+        if (this.providedType == 'Internet' as ScryptedDeviceType) {
+            this.storageSettings.values.gatewayMode = 'Manual';
+            // this.storageSettings.settings.gatewayMode.type = 'radiopanel';
+            this.storageSettings.settings.gatewayMode.hide = true;
+            this.storageSettings.settings.internet.hide = true;
+            this.storageSettings.settings.gateway4.radioGroups = ['Manual'];
+            this.storageSettings.settings.gateway6.radioGroups = ['Manual'];
+            this.storageSettings.settings.dhcpServer.hide = true;
+            this.storageSettings.settings.dhcpRanges.hide = true;
+        }
     }
 
     async initializeNetworkInterface() {

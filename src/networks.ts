@@ -393,6 +393,12 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                 title: 'Name',
                 type: 'string',
             },
+            networkType: {
+                title: 'Network Type',
+                type: 'string',
+                choices: ['Local Network', 'Bridge', 'Internet'],
+                defaultValue: 'Local Network',
+            },
             parentInterface: {
                 title: 'Network Interface',
                 choices: Object.keys(os.networkInterfaces()).filter(k => !disallowed.has(k)),
@@ -408,6 +414,13 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
     async createDevice(settings: DeviceCreatorSettings): Promise<string> {
         const nativeId = `sv${crypto.randomBytes(2).toString('hex')}`;
+
+        let type = 'Local Network';
+        if (settings.networkType === 'Bridge') 
+            type = 'Bridge';
+        else if (settings.networkType === 'Internet')
+            type = 'Internet';
+
         let { vlanId, name, parentInterface } = settings;
         name = name?.toString() || `VLAN ${vlanId}`;
         if (!vlanId)
@@ -428,7 +441,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                 ScryptedInterface.Settings,
                 ScryptedInterface.ScryptedSystemDevice,
             ],
-            type: "Network" as ScryptedDeviceType,
+            type: type as ScryptedDeviceType,
             name,
         });
 
