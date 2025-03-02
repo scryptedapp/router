@@ -20,11 +20,6 @@ add_or_replace_route() {
     local table="$3"
     local gateway="$new_routers"
 
-    # Ensure the gateway is not empty
-    if [ -z "$gateway" ]; then
-        return 0
-    fi
-
     # Add or replace the default route
     ip route replace default via $gateway dev $wan_interface proto static src $from_ip table $table
 }
@@ -32,6 +27,7 @@ add_or_replace_route() {
 # Process each WAN interface and LAN IP pair
 ${pairs.map(pair => `
 if [ "$interface" = "${pair.wanInterface}" ]; then
+    echo add_or_replace_route "${pair.wanInterface}" "${pair.fromIp}" ${pair.table} >> /tmp/dhclient-hooks.log
     add_or_replace_route "${pair.wanInterface}" "${pair.fromIp}" ${pair.table}
 fi
 `).join('\n\n')}

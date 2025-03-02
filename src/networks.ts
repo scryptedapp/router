@@ -10,7 +10,7 @@ import { EthernetInterface, NetplanConfig, Route, RoutingPolicy, VlanInterface }
 import { runCommand } from "./cli";
 import os from 'os';
 import { generateDhClientHooks } from './dhclient';
-import { generatePortForward as generatePortForwards, generateWanGateway } from './nftables';
+import { addPortForward, addWanGateway, flushChains } from './nftables';
 import { PortForward } from './portforward';
 export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator {
     vlans = new Map<string, Vlan>();
@@ -55,21 +55,8 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         const ipv6Default = '::/0';
 
         const dhclientPairs: { wanInterface: string; fromIp: string; table: number }[] = [];
-        const nftablesWanGateways: {
-            nativeId: string,
-            ipVersion: 'ip' | 'ip6',
-            wanInterface: string;
-            lanInterface: string
-        }[] = [];
-
-        const nftablesPortForwards: {
-            ipVersion: 'ip' | 'ip6',
-            wanInterface: string;
-            protocol: 'tcp' | 'udp' | 'tcp + udp' | 'https';
-            srcPort: string;
-            dstIp: string;
-            dstPort: number
-        }[] = [];
+        const nftables = new Set<string>();
+        flushChains(nftables);
 
         for (const vlan of this.vlans.values()) {
             const vlanId = vlan.storageSettings.values.vlanId;
@@ -185,22 +172,12 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                             // iptables -A FORWARD -i eth0 -o eth1.10 -m state --state RELATED,ESTABLISHED -j ACCEPT
 
                             const wanInterface = getInterfaceName(internetVlan.storageSettings.values.parentInterface, internetVlan.storageSettings.values.vlanId);
-                            nftablesWanGateways.push({
-                                nativeId: vlan.nativeId!,
-                                ipVersion: 'ip',
-                                wanInterface,
-                                lanInterface: interfaceName
-                            });
+                            addWanGateway(nftables, 'ip', wanInterface, interfaceName);
 
                             // no need to do any ip6tables if the vlan matches.
                             // routing is necessary on vlan mismatch
                             if (vlan.storageSettings.values.vlanId !== internetVlan.storageSettings.values.vlanId) {
-                                nftablesWanGateways.push({
-                                    nativeId: vlan.nativeId!,
-                                    ipVersion: 'ip6',
-                                    wanInterface,
-                                    lanInterface: interfaceName
-                                });
+                                addWanGateway(nftables, 'ip6', wanInterface, interfaceName);
                             }
 
                             if (internetVlan.storageSettings.values.dhcpMode !== 'Auto') {
@@ -322,14 +299,8 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                     portforward.console.warn('Source Port, Destination IP, and Destination Port are required.');
                     continue;
                 }
-                nftablesPortForwards.push({
-                    ipVersion: 'ip',
-                    wanInterface: interfaceName,
-                    protocol,
-                    srcPort,
-                    dstIp,
-                    dstPort,
-                });
+
+                addPortForward(nftables, 'ip', interfaceName, protocol, srcPort, dstIp, dstPort);
             }
         }
 
@@ -356,7 +327,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         });
         await runCommand('dhclient', [], console);
 
-        const nftablesConf = generateWanGateway(nftablesWanGateways) + generatePortForwards(nftablesPortForwards);
+        const nftablesConf = [...nftables].join('\n');
         await fs.promises.writeFile(`/etc/nftables.d/02-scrypted.conf`, nftablesConf, {
             mode: 0o600,
         });
