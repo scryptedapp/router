@@ -329,7 +329,7 @@ After=network.target
 User=root
 Group=root
 Type=simple
-ExecStart=dnsmasq -d -R -i ${interfaceName} --except-interface=lo -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')}
+ExecStart=dnsmasq -d -R -i ${interfaceName} --except-interface=lo -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')} --dhcp-leasefile=/var/lib/misc/dnsmasq-${this.nativeId}.leases
 Restart=always
 RestartSec=3
 StandardOutput=null
