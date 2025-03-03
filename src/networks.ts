@@ -80,10 +80,8 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             }
 
             const dhcpClient = dhcpMode === 'Auto';
-            if (!addresses.length && !dhcpClient) {
-                vlan.console.warn('Address is required if DHCP Mode is not Client.');
-                continue;
-            }
+            if (!addresses.length && !dhcpClient)
+                vlan.console.warn('Address is unconfigured.');
 
             const dhcp4 = dhcpClient && !!vlan.storageSettings.values.dhcp4;
             const dhcp6 = dhcpClient && !!vlan.storageSettings.values.dhcp6;
@@ -288,7 +286,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             } satisfies EthernetInterface | VlanInterface);
 
             for (const nativeId of sdk.deviceManager.getNativeIds()) {
-                if (!nativeId?.startsWith('pf')) 
+                if (!nativeId?.startsWith('pf'))
                     continue;
                 const device = sdk.systemManager.getDeviceById(this.pluginId, nativeId);
                 if (device.providerId !== vlan.id)
@@ -387,7 +385,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         const nativeId = `sv${crypto.randomBytes(2).toString('hex')}`;
 
         let type = 'Local Network';
-        if (settings.networkType === 'Bridge') 
+        if (settings.networkType === 'Bridge')
             type = 'Bridge';
         else if (settings.networkType === 'Internet')
             type = 'Internet';
