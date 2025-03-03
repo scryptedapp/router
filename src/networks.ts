@@ -1,17 +1,17 @@
-import net from 'net';
 import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedNativeId, Setting } from "@scrypted/sdk";
-import { Vlan } from "./vlan";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import crypto from 'crypto';
 import fs from 'fs';
-import { getInterfaceName } from "./interface-name";
-import yaml from 'yaml';
-import { EthernetInterface, NetplanConfig, Route, RoutingPolicy, VlanInterface } from "./netplan";
-import { runCommand } from "./cli";
+import net from 'net';
 import os from 'os';
-import { generateDhClientHooks } from './dhclient';
+import yaml from 'yaml';
+import { runCommand } from "./cli";
+import { createDhcpWatcher } from './dchp-watcher';
+import { getInterfaceName } from "./interface-name";
+import { EthernetInterface, NetplanConfig, Route, RoutingPolicy, VlanInterface } from "./netplan";
 import { addPortForward, addWanGateway, flushChains } from './nftables';
 import { PortForward } from './portforward';
+import { Vlan } from "./vlan";
 export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator {
     vlans = new Map<string, Vlan>();
 
@@ -319,11 +319,11 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             await vlan.initializeNetworkInterface();
         }
 
-        const dhClientScript = generateDhClientHooks(dhclientPairs);
-        await fs.promises.writeFile(`/etc/dhcp/dhclient-exit-hooks.d/scrypted`, dhClientScript, {
+        const dhcpWatchScript = createDhcpWatcher(dhclientPairs);
+        await fs.promises.writeFile('/etc/dhcp/scrypted-dhcp-watcher', dhcpWatchScript, {
             mode: 0o755,
         });
-        await runCommand('dhclient', [], console);
+        await runCommand('systemctl', ['restart', 'scrypted-dhcp-watch'], console);
 
         const nftablesConf = [...nftables].join('\n');
         await fs.promises.writeFile(`/etc/nftables.d/02-scrypted.conf`, nftablesConf, {
