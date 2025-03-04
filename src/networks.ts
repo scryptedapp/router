@@ -10,7 +10,7 @@ import { createDhcpWatcher } from './dchp-watcher';
 import { getInterfaceName } from "./interface-name";
 import { EthernetInterface, NetplanConfig, Route, RoutingPolicy, VlanInterface } from "./netplan";
 import { addPortForward, addWanGateway, flushChains } from './nftables';
-import { PortForward } from './portforward';
+import { PortForward } from './port-forward';
 import { Vlan } from "./vlan";
 export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator {
     vlans = new Map<string, Vlan>();

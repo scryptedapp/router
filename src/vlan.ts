@@ -5,8 +5,9 @@ import fs from 'fs';
 import os from 'os';
 import { getInterfaceName } from './interface-name';
 import type { Networks } from "./networks";
-import { getPortForwardSettings, PortForward } from "./portforward";
+import { getPortForwardSettings, PortForward } from "./port-forward";
 import { getServiceFile, removeServiceFile, systemctlDaemonReload, systemctlDisable, systemctlEnable, systemctlRestart, systemctlStop } from "./systemd";
+import { AddressReservation, getAddressReservationSettings } from "./address-reservation";
 
 
 function findInterfaceAddress(name: string) {
@@ -185,15 +186,14 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             }
         };
 
-        this.systemDevice = {
-            deviceCreator: 'Port Forward',
-        }
-
         this.updateInfo();
     }
 
     async getDevice(nativeId: ScryptedNativeId) {
-        return new PortForward(nativeId);
+        if (nativeId?.startsWith('pf'))
+            return new PortForward(nativeId);
+        else if (nativeId?.startsWith('ar'))
+            return new AddressReservation(nativeId);
     }
 
     async releaseDevice(id: string, nativeId: ScryptedNativeId): Promise<void> {
@@ -204,33 +204,66 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
     }
 
     async getCreateDeviceSettings(): Promise<Setting[]> {
-        const ret = getPortForwardSettings(this);
-        const settings = await ret.getSettings();
-        settings.unshift({
-            key: 'name',
-            title: 'Name',
-            description: 'Friendly name for this port forward rule.',
-        });
-        return settings;
+        if (this.providedType === ScryptedDeviceType.Internet) {
+            const ret = getPortForwardSettings(this);
+            const settings = await ret.getSettings();
+            settings.unshift({
+                key: 'name',
+                title: 'Name',
+                description: 'Friendly name for this port forward rule.',
+            });
+            return settings;
+        }
+        else if (this.providedType === ScryptedDeviceType.Network && this.storageSettings.values.dhcpServer === 'Enabled') {
+            const ret = getAddressReservationSettings(this);
+            const settings = await ret.getSettings();
+            settings.unshift({
+                key: 'name',
+                title: 'Name',
+                description: 'Friendly name for this port forward rule.',
+            });
+            return settings;
+        }
+        throw new Error('Unexpected device type.');
     }
 
     async createDevice(settings: DeviceCreatorSettings): Promise<string> {
-        const nativeId = `pf${crypto.randomBytes(2).toString('hex')}`;
-        const id = await sdk.deviceManager.onDeviceDiscovered({
-            providerNativeId: this.nativeId,
-            name: settings?.name as string,
-            nativeId,
-            type: "Port Forward" as ScryptedDeviceType,
-            interfaces: [
-                ScryptedInterface.Settings
-            ],
-        });
-        const portForward = new PortForward(nativeId);
-        portForward.storageSettings.values.protocol = settings.protocol;
-        portForward.storageSettings.values.srcPort = settings.srcPort;
-        portForward.storageSettings.values.dstIp = settings.dstIp;
-        portForward.storageSettings.values.dstPort = settings.dstPort;
-        return id;
+        if (this.providedType === ScryptedDeviceType.Internet) {
+
+            const nativeId = `pf${crypto.randomBytes(2).toString('hex')}`;
+            const id = await sdk.deviceManager.onDeviceDiscovered({
+                providerNativeId: this.nativeId,
+                name: settings?.name as string,
+                nativeId,
+                type: "Port Forward" as ScryptedDeviceType,
+                interfaces: [
+                    ScryptedInterface.Settings
+                ],
+            });
+            const portForward = new PortForward(nativeId);
+            portForward.storageSettings.values.protocol = settings.protocol;
+            portForward.storageSettings.values.srcPort = settings.srcPort;
+            portForward.storageSettings.values.dstIp = settings.dstIp;
+            portForward.storageSettings.values.dstPort = settings.dstPort;
+            return id;
+        }
+        else if (this.providedType === ScryptedDeviceType.Network && this.storageSettings.values.dhcpServer === 'Enabled') {
+            const nativeId = `ar${crypto.randomBytes(2).toString('hex')}`;
+            const id = await sdk.deviceManager.onDeviceDiscovered({
+                providerNativeId: this.nativeId,
+                name: settings?.name as string,
+                nativeId,
+                type: ScryptedDeviceType.Network,
+                interfaces: [
+                    ScryptedInterface.Settings
+                ],
+            });
+            const addressReservation = new AddressReservation(nativeId);
+            addressReservation.storageSettings.values.mac = settings.mac;
+            addressReservation.storageSettings.values.ip = settings.ip;
+            return id;
+        }
+        throw new Error('Unexpected device type.');
     }
 
     getSettings(): Promise<Setting[]> {
@@ -249,17 +282,31 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             ScryptedInterface.ScryptedSystemDevice,
         ];
 
-        if (this.type === 'Internet' as ScryptedDeviceType) {
+        if (this.providedType === ScryptedDeviceType.Internet) {
             interfaces.push(
                 ScryptedInterface.DeviceProvider,
                 ScryptedInterface.DeviceCreator,
             );
+
+            this.systemDevice = {
+                deviceCreator: 'Port Forward',
+            }
+        }
+        else if (this.providedType === ScryptedDeviceType.Network && this.storageSettings.values.dhcpServer === 'Enabled') {
+            interfaces.push(
+                ScryptedInterface.DeviceProvider,
+                ScryptedInterface.DeviceCreator,
+            );
+
+            this.systemDevice = {
+                deviceCreator: 'Address Reservation',
+            }
         }
 
         sdk.deviceManager.onDeviceDiscovered({
             providerNativeId: this.networks.nativeId,
             interfaces,
-            type: this.type!,
+            type: this.providedType!,
             name: this.providedName!,
             nativeId: this.nativeId,
         });
