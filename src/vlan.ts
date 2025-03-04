@@ -379,8 +379,28 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
                         this.console.warn('DHCP Range is required if DHCP Mode is Server.');
                         await removeServiceFile('vlan', this.nativeId!, this.console);
                     }
-                    else {
+                    else if (this.storageSettings.values.dhcpServer === 'Enabled') {
                         // dnsmasq -d -i eth1.10:svdff7 -z --dhcp-range=192.168.10.100,192.168.10.200,12h --dhcp-option=6,192.168.10.1
+                        const hostsFile = `/etc/hosts.dnsmasq-${this.nativeId}`;
+                        const dhcpHosts: string[] = [];
+
+                        for (const nativeId of sdk.deviceManager.getNativeIds()) {
+                            if (!nativeId?.startsWith('ar'))
+                                continue;
+                            const device = sdk.systemManager.getDeviceById(this.pluginId, nativeId);
+                            if (device.providerId !== this.id)
+                                continue;
+                            const portforward = await this.getDevice(nativeId) as AddressReservation;
+                            const { mac, ip } = portforward.storageSettings.values;
+                            if (!mac || !ip ) {
+                                portforward.console.warn('Mac and Address are required for address reservation.');
+                                continue;
+                            }
+
+                            dhcpHosts.push(`${mac},${ip}`);
+                        }
+
+                        await fs.promises.writeFile(hostsFile, dhcpHosts.join('\n'));
 
                         const serviceFileContents = `
 [Unit]
@@ -391,7 +411,7 @@ After=network.target
 User=root
 Group=root
 Type=simple
-ExecStart=dnsmasq -d -R -i ${interfaceName} --except-interface=lo -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')} --dhcp-leasefile=/var/lib/misc/dnsmasq-${this.nativeId}.leases
+ExecStart=dnsmasq -d -R -i ${interfaceName} --except-interface=lo -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')} --dhcp-leasefile=/var/lib/misc/dnsmasq-${this.nativeId}.leases --dhcp-hostsfile=${hostsFile}
 Restart=always
 RestartSec=3
 StandardOutput=null

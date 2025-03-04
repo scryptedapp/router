@@ -294,7 +294,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                 const portforward = await vlan.getDevice(nativeId) as PortForward;
                 const { srcPort, dstIp, dstPort, protocol } = portforward.storageSettings.values;
                 if (!srcPort || !dstIp || !dstPort || !protocol) {
-                    portforward.console.warn('Source Port, Destination IP, and Destination Port are required.');
+                    portforward.console.warn('Source Port, Destination IP, and Destination Port are required for port forward.');
                     continue;
                 }
 
