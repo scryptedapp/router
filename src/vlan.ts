@@ -8,6 +8,18 @@ import type { Networks } from "./networks";
 import { getPortForwardSettings, PortForward } from "./portforward";
 import { getServiceFile, removeServiceFile, systemctlDaemonReload, systemctlDisable, systemctlEnable, systemctlRestart, systemctlStop } from "./systemd";
 
+
+function findInterfaceAddress(name: string) {
+    const interfaces = os.networkInterfaces();
+    for (const [key, value] of Object.entries(interfaces)) {
+        if (key === name) {
+            return value?.[0]?.address;
+        }
+    }
+    return undefined;
+
+}
+
 export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider, DeviceCreator, ScryptedSystemDevice {
     storageSettings = new StorageSettings(this, {
         parentInterface: {
@@ -232,27 +244,30 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
     }
 
     updateInfo() {
-        // const interfaces = [
-        //     ScryptedInterface.Settings,
-        //     ScryptedInterface.ScryptedSystemDevice,
-        // ];
+        const interfaces = [
+            ScryptedInterface.Settings,
+            ScryptedInterface.ScryptedSystemDevice,
+        ];
 
-        // if (this.type === 'Internet' as ScryptedDeviceType) {
-        //     interfaces.push(
-        //         ScryptedInterface.DeviceProvider,
-        //         ScryptedInterface.DeviceCreator,
-        //     );
-        // }
+        if (this.type === 'Internet' as ScryptedDeviceType) {
+            interfaces.push(
+                ScryptedInterface.DeviceProvider,
+                ScryptedInterface.DeviceCreator,
+            );
+        }
 
-        // sdk.deviceManager.onDeviceDiscovered({
-        //     providerNativeId: this.networks.nativeId,
-        //     interfaces,
-        //     type: this.type!,
-        //     name: this.providedName!,
-        //     nativeId: this.nativeId,
-        // });
+        sdk.deviceManager.onDeviceDiscovered({
+            providerNativeId: this.networks.nativeId,
+            interfaces,
+            type: this.type!,
+            name: this.providedName!,
+            nativeId: this.nativeId,
+        });
+
+        const interfaceName = getInterfaceName(this.storageSettings.values.parentInterface, this.storageSettings.values.vlanId);
 
         this.info = {
+            ip: findInterfaceAddress(interfaceName),
             col1: `VLAN ${this.storageSettings.values.vlanId} on ${this.storageSettings.values.parentInterface}`,
             col2: `${this.storageSettings.values.addresses.join(', ') || 'unconfigured'}`,
         }
