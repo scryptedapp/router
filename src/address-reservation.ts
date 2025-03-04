@@ -3,14 +3,18 @@ import { StorageSettings, StorageSettingsDevice } from "@scrypted/sdk/storage-se
 
 export function getAddressReservationSettings(device: StorageSettingsDevice) {
     const ret = new StorageSettings(device, {
+        host: {
+            title: 'Host',
+            description: 'The reserved DNS host name. Defaults to the friendly name.',
+        },
         mac: {
             title: 'MAC Address',
-            description: 'The MAC address to reserve.',
+            description: 'The MAC address of the device.',
             type: 'string',
         },
         ip: {
             title: 'IP Address',
-            description: 'The IP address to reserve.',
+            description: 'The reserved IP address.',
             type: 'string',
         },
     });
@@ -18,12 +22,15 @@ export function getAddressReservationSettings(device: StorageSettingsDevice) {
 }
 
 export class AddressReservation extends ScryptedDeviceBase implements Settings {
-  storageSettings = getAddressReservationSettings(this);
+    storageSettings = getAddressReservationSettings(this);
 
     constructor(nativeId: ScryptedNativeId) {
         super(nativeId);
 
         this.updateInfo();
+        this.storageSettings.settings.host.mapGet = (value) => {
+            return value || this.name;
+        };
     }
 
     updateInfo() {

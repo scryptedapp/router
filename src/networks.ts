@@ -323,7 +323,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         await fs.promises.writeFile('/etc/dhcp/scrypted-dhcp-watcher', dhcpWatchScript, {
             mode: 0o755,
         });
-        await runCommand('systemctl', ['restart', 'scrypted-dhcp-watch'], console);
+        await runCommand('systemctl', ['restart', 'scrypted-dhcp-watcher'], console);
 
         const nftablesConf = [...nftables].join('\n');
         await fs.promises.writeFile(`/etc/nftables.d/02-scrypted.conf`, nftablesConf, {

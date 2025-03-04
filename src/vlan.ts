@@ -1,4 +1,5 @@
-import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedNativeId, ScryptedSystemDevice, Setting, Settings, SettingValue } from "@scrypted/sdk";
+import path from 'path';
+import sdk, { AdoptDevice, DeviceCreator, DeviceCreatorSettings, DeviceDiscovery, DeviceProvider, DiscoveredDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedNativeId, ScryptedSystemDevice, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import crypto from 'crypto';
 import fs from 'fs';
@@ -21,7 +22,7 @@ function findInterfaceAddress(name: string) {
 
 }
 
-export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider, DeviceCreator, ScryptedSystemDevice {
+export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider, DeviceCreator, ScryptedSystemDevice, DeviceDiscovery {
     storageSettings = new StorageSettings(this, {
         parentInterface: {
             title: 'Network Interface',
@@ -227,6 +228,51 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         throw new Error('Unexpected device type.');
     }
 
+    get leaseFile() {
+        return path.join(process.env.SCRYPTED_PLUGIN_VOLUME!, `dnsmasq-${this.nativeId}.leases`);
+    }
+
+    async discoverDevices(): Promise<DiscoveredDevice[]> {
+        // read the lease file and parse it
+        const leases = await fs.promises.readFile(this.leaseFile, 'utf8');
+        const lines = leases.split('\n');
+        const devices: DiscoveredDevice[] = [];
+        for (const line of lines) {
+            if (!line)
+                continue;
+            const parts = line.split(' ');
+            const mac = parts[1];
+            const ip = parts[2];
+            const host = parts[3];
+            devices.push({
+                name: host,
+                nativeId: mac,
+                description: mac,
+                type: ScryptedDeviceType.Network,
+                interfaces: [
+                    ScryptedInterface.Settings,
+                ],
+                info: {
+                    mac,
+                    ip,
+                },
+            });
+        }
+        return devices;
+    }
+
+    async adoptDevice(device: AdoptDevice): Promise<string> {
+        const discovered = (await this.discoverDevices()).find(d => d.nativeId === device.nativeId);
+        if (!discovered)
+            throw new Error('Device not found');
+        const settings: DeviceCreatorSettings = {
+            name: discovered.name,
+            mac: discovered.info!.mac,
+            ip: discovered.info!.ip,
+        };
+        return this.createDevice(settings);
+    }
+
     async createDevice(settings: DeviceCreatorSettings): Promise<string> {
         if (this.providedType === ScryptedDeviceType.Internet) {
 
@@ -296,28 +342,27 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             interfaces.push(
                 ScryptedInterface.DeviceProvider,
                 ScryptedInterface.DeviceCreator,
+                ScryptedInterface.DeviceDiscovery,
             );
 
             this.systemDevice = {
                 deviceCreator: 'Address Reservation',
+                deviceDiscovery: 'DHCP Client',
             }
         }
 
+        const interfaceName = getInterfaceName(this.storageSettings.values.parentInterface, this.storageSettings.values.vlanId);
         sdk.deviceManager.onDeviceDiscovered({
             providerNativeId: this.networks.nativeId,
             interfaces,
             type: this.providedType!,
             name: this.providedName!,
             nativeId: this.nativeId,
+            info: {
+                ip: findInterfaceAddress(interfaceName),
+                description: `VLAN ${this.storageSettings.values.vlanId} on ${this.storageSettings.values.parentInterface}`,
+            }
         });
-
-        const interfaceName = getInterfaceName(this.storageSettings.values.parentInterface, this.storageSettings.values.vlanId);
-
-        this.info = {
-            ip: findInterfaceAddress(interfaceName),
-            col1: `VLAN ${this.storageSettings.values.vlanId} on ${this.storageSettings.values.parentInterface}`,
-            col2: `${this.storageSettings.values.addresses.join(', ') || 'unconfigured'}`,
-        }
 
         if (this.providedType == 'Internet' as ScryptedDeviceType) {
             this.storageSettings.values.gatewayMode = 'Manual';
@@ -380,24 +425,23 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
                         await removeServiceFile('vlan', this.nativeId!, this.console);
                     }
                     else if (this.storageSettings.values.dhcpServer === 'Enabled') {
-                        // dnsmasq -d -i eth1.10:svdff7 -z --dhcp-range=192.168.10.100,192.168.10.200,12h --dhcp-option=6,192.168.10.1
+                        // should persist between container recreation because it can not be regenerated like the hosts file
                         const hostsFile = `/etc/hosts.dnsmasq-${this.nativeId}`;
                         const dhcpHosts: string[] = [];
-
                         for (const nativeId of sdk.deviceManager.getNativeIds()) {
                             if (!nativeId?.startsWith('ar'))
                                 continue;
                             const device = sdk.systemManager.getDeviceById(this.pluginId, nativeId);
                             if (device.providerId !== this.id)
                                 continue;
-                            const portforward = await this.getDevice(nativeId) as AddressReservation;
-                            const { mac, ip } = portforward.storageSettings.values;
-                            if (!mac || !ip ) {
-                                portforward.console.warn('Mac and Address are required for address reservation.');
+                            const addressReservation = await this.getDevice(nativeId) as AddressReservation;
+                            const { mac, ip, host } = addressReservation.storageSettings.values;
+                            if (!mac || !ip || !host) {
+                                addressReservation.console.warn('Mac, Address, and Host are required for address reservation.');
                                 continue;
                             }
 
-                            dhcpHosts.push(`${mac},${ip}`);
+                            dhcpHosts.push(`${mac},${ip},${host},infinite`);
                         }
 
                         await fs.promises.writeFile(hostsFile, dhcpHosts.join('\n'));
@@ -411,7 +455,7 @@ After=network.target
 User=root
 Group=root
 Type=simple
-ExecStart=dnsmasq -d -R -i ${interfaceName} --except-interface=lo -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')} --dhcp-leasefile=/var/lib/misc/dnsmasq-${this.nativeId}.leases --dhcp-hostsfile=${hostsFile}
+ExecStart=dnsmasq -d -R -i ${interfaceName} --except-interface=lo -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')} --dhcp-leasefile=${this.leaseFile} --dhcp-hostsfile=${hostsFile}
 Restart=always
 RestartSec=3
 StandardOutput=null
