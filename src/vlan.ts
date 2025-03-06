@@ -413,12 +413,11 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         });
 
         if (this.providedType == 'Internet' as ScryptedDeviceType) {
-            this.storageSettings.values.gatewayMode = 'Manual';
             // this.storageSettings.settings.gatewayMode.type = 'radiopanel';
             this.storageSettings.settings.gatewayMode.hide = true;
             this.storageSettings.settings.internet.hide = true;
-            this.storageSettings.settings.gateway4.radioGroups = ['Manual'];
-            this.storageSettings.settings.gateway6.radioGroups = ['Manual'];
+            this.storageSettings.settings.gateway4.radioGroups = ['Address Configuration:Manual'];
+            this.storageSettings.settings.gateway6.radioGroups = ['Address Configuration:Manual'];
             this.storageSettings.settings.dhcpServer.hide = true;
             this.storageSettings.settings.dhcpRanges.hide = true;
             this.storageSettings.settings.dhcpGateway.hide = true;

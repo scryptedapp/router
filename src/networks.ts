@@ -75,7 +75,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                 ethernets: {
                     lo: {
                         addresses: [
-                            "127.0.0.1/8", 
+                            "127.0.0.1/8",
                             "::1/128",
                             '192.168.255.1/32',
                             'fc00::1/128',
@@ -123,19 +123,55 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
             allParents.add(parentInterface);
 
+            // sanitize this setting for internet types, which can't get use an internet interface gateway since it is an internet type
+            if (this.providedType === ScryptedDeviceType.Internet)
+                vlan.storageSettings.values.gatewayMode = 'Manual';
+
             let { addresses, addressMode, dnsServers, internet, gateway4, gateway6, gatewayMode } = vlan.storageSettings.values;
-            if (gatewayMode !== 'Manual') {
+
+            const dhcpClient = addressMode === 'Auto';
+
+            // clear this out if using a gateway is local interface or disabled or address configuration is using dhcp
+            if (gatewayMode !== 'Manual' || dhcpClient) {
                 gateway4 = undefined;
                 gateway6 = undefined;
             }
 
-            const dhcpClient = addressMode === 'Auto';
             if (!addresses.length && !dhcpClient)
                 vlan.console.warn('Address is unconfigured.');
 
             const dhcp4 = dhcpClient && !!vlan.storageSettings.values.dhcp4;
             const dhcp6 = dhcpClient && !!vlan.storageSettings.values.dhcp6;
             const acceptRa = dhcpClient && !!vlan.storageSettings.values.acceptRa;
+            const internetVlan = [...this.vlans.values()].find(v => getInterfaceName(v.storageSettings.values.parentInterface, v.storageSettings.values.vlanId) === internet);
+
+            // use the provided name servers unless configuration is auto
+            if (this.providedType === ScryptedDeviceType.Internet) {
+                if (vlan.storageSettings.values.addressMode === 'Auto' && vlan.storageSettings.values.dnsConfiguration === 'Auto')
+                    dnsServers = undefined;
+            }
+            else {
+                if (vlan.storageSettings.values.addressMode === 'Auto') {
+                    if (vlan.storageSettings.values.dnsConfiguration === 'Auto')
+                        dnsServers = undefined;
+                }
+                else {
+                    if (vlan.storageSettings.values.gatewayMode === 'Local Interface') {
+                        if (vlan.storageSettings.values.dnsConfiguration === 'Auto') {
+                            // this network has an internet interface, try to get the dns from that interface
+                            if (internetVlan) {
+                                if (internetVlan.storageSettings.values.addressMode === 'Auto' && internetVlan.storageSettings.values.dnsConfiguration === 'Auto') {
+                                    // this is tricky as the internet is dhcp.
+                                    vlan.console.warn(`Internet interface ${internet} is DHCP and not configured with DNS servers.`);
+                                }
+                                else {
+                                    dnsServers = internetVlan?.storageSettings.values.dnsServers;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             const nameservers = dnsServers?.length ? {
                 addresses: dnsServers,
@@ -187,7 +223,6 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                         // fall through to use this instead.
                     }
                     else {
-                        const internetVlan = [...this.vlans.values()].find(v => getInterfaceName(v.storageSettings.values.parentInterface, v.storageSettings.values.vlanId) === internet);
                         if (!internetVlan) {
                             this.console.warn(`Internet interface ${internet} not found or is not managed directly.`);
                         }
@@ -351,7 +386,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
                 vlan.storageSettings.values.httpsServerPort = httpsServerPortStart += 2;
                 const loset = new Set(lanInterfaces.keys());
-                
+
                 // limitation in sysctl net.ipv4.conf.all.rp_filter
                 // can't do port forward to standard loopback interfaces, gotta add these:
                 // ip addr add 192.168.255.1/32 dev lo
