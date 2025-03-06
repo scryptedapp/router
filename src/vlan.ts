@@ -42,10 +42,121 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             },
         },
 
+        addressMode: {
+            title: 'Address Configuration',
+            description: 'The Address Configuration to use for this network interface.',
+            choices: [
+                'Auto',
+                'Manual',
+            ],
+            defaultValue: 'Manual',
+            type: 'radiopanel',
+        },
+        addresses: {
+            title: 'Address',
+            radioGroups: ['Address Configuration:Manual'],
+            type: 'string',
+            description: 'IPv4 or IPv6 address of this network interface.',
+            placeholder: 'E.g.: 192.168.10.1/24, 2001:abc:def::de/64',
+            multiple: true,
+            defaultValue: [],
+        },
+
+        gatewayMode: {
+            title: 'Internet Gateway',
+            radioGroups: ['Address Configuration:Manual'],
+            type: 'radiobutton',
+            choices: ['Disabled', 'Local Interface', 'Manual'],
+        },
+
+        internet: {
+            title: 'Local Interface',
+            radioGroups: ['Local Interface'],
+            description: 'The local interface that acts as a internet gateway for this network.',
+        },
+
+        gateway4: {
+            title: 'Gateway IPv4',
+            radioGroups: ['Internet Gateway:Manual'],
+            type: 'string',
+            description: 'The IPv4 gateway for this network interface.',
+            placeholder: '192.168.10.1',
+        },
+
+        gateway6: {
+            title: 'Gateway IPv6',
+            radioGroups: ['Internet Gateway:Manual'],
+            type: 'string',
+            description: 'The IPv6 gateway for this network interface.',
+            placeholder: '2001:db8::1',
+        },
+
+        dhcp4: {
+            title: 'DHCPv4',
+            radioGroups: ['Address Configuration:Auto'],
+            type: 'boolean',
+            description: 'Enable DHCPv4 for this network interface.',
+            defaultValue: true,
+        },
+        dhcp6: {
+            title: 'DHCPv6',
+            radioGroups: ['Address Configuration:Auto'],
+            type: 'boolean',
+            description: 'Enable DHCPv6 for this network interface.',
+            defaultValue: true,
+        },
+        acceptRa: {
+            title: 'Accept Router Advertisements',
+            radioGroups: ['Address Configuration:Auto'],
+            type: 'boolean',
+            description: 'Accept Router Advertisements for this network interface.',
+            defaultValue: true,
+        },
+
+        dhcpServer: {
+            title: 'DHCP Server',
+            type: 'radiobutton',
+            radioGroups: ['Manual'],
+            choices: ['Enabled', 'Disabled'],
+            description: 'Enable DHCP server for this network interface. This will override the DHCP Client setting.',
+            defaultValue: false,
+        },
+        dhcpRanges: {
+            title: 'DHCP Server Ranges',
+            radioGroups: ['Enabled'],
+            type: 'string',
+            description: 'The DHCP range to use for this network interface. If not specified, a default range between will be used. E.g.: 192.168.10.10,192.168.10.200,12h',
+            placeholder: '192.168.10.10,192.168.10.200,12h',
+            multiple: true,
+        },
+        dhcpGateway: {
+            title: 'DHCP Gateway',
+            radioGroups: ['Enabled'],
+            type: 'string',
+            description: 'Advanced: The DHCP gateway to use for this network interface. If not specified, this interface\'s address will be used.',
+        },
+
+        dnsConfiguration: {
+            title: 'DNS Configuration',
+            type: 'radiobutton',
+            description: 'Automatically configure this network\'s DNS settings using the internet connection.',
+            choices: ['Auto', 'Manual'],
+            defaultValue: 'Auto',
+            radioGroups: [
+                'Address Configuration:Auto',
+                'Internet Gateway:Local Interface',
+            ]
+        },
         dnsServers: {
             title: 'DNS Servers',
             type: 'string',
             description: 'The DNS servers to use for this network interface.',
+            radioGroups: [
+                'Address Configuration:Auto',
+                'Internet Gateway:Disabled',
+                'Internet Gateway:Manual',
+                'DNS Configuration:Manual'
+            ],
             multiple: true,
             combobox: true,
             choices: [
@@ -77,99 +188,6 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             defaultValue: [
                 'localdomain',
             ]
-        },
-        addressMode: {
-            title: 'Address Configuration',
-            description: 'The Address Configuration to use for this network interface.',
-            choices: [
-                'Auto',
-                'Manual',
-            ],
-            defaultValue: 'Manual',
-            type: 'radiopanel',
-        },
-        addresses: {
-            title: 'Address',
-            radioGroups: ['Manual'],
-            type: 'string',
-            description: 'IPv4 or IPv6 address of this network interface.',
-            placeholder: 'E.g.: 192.168.10.1/24, 2001:abc:def::de/64',
-            multiple: true,
-            defaultValue: [],
-        },
-
-        gatewayMode: {
-            title: 'Internet Gateway',
-            radioGroups: ['Manual'],
-            type: 'radiobutton',
-            choices: ['Disabled', 'Local Interface', 'Manual'],
-        },
-
-        internet: {
-            title: 'Local Interface',
-            radioGroups: ['Local Interface'],
-            description: 'The local interface that acts as a internet gateway for this network.',
-        },
-
-        gateway4: {
-            title: 'Gateway IPv4',
-            radioGroups: ['Internet Gateway:Manual'],
-            type: 'string',
-            description: 'The IPv4 gateway for this network interface.',
-            placeholder: '192.168.10.1',
-        },
-
-        gateway6: {
-            title: 'Gateway IPv6',
-            radioGroups: ['Internet Gateway:Manual'],
-            type: 'string',
-            description: 'The IPv6 gateway for this network interface.',
-            placeholder: '2001:db8::1',
-        },
-
-        dhcp4: {
-            title: 'DHCPv4',
-            radioGroups: ['Auto'],
-            type: 'boolean',
-            description: 'Enable DHCPv4 for this network interface.',
-            defaultValue: true,
-        },
-        dhcp6: {
-            title: 'DHCPv6',
-            radioGroups: ['Auto'],
-            type: 'boolean',
-            description: 'Enable DHCPv6 for this network interface.',
-            defaultValue: true,
-        },
-        acceptRa: {
-            title: 'Accept Router Advertisements',
-            radioGroups: ['Auto'],
-            type: 'boolean',
-            description: 'Accept Router Advertisements for this network interface.',
-            defaultValue: true,
-        },
-
-        dhcpServer: {
-            title: 'DHCP Server',
-            type: 'radiobutton',
-            radioGroups: ['Manual'],
-            choices: ['Enabled', 'Disabled'],
-            description: 'Enable DHCP server for this network interface. This will override the DHCP Client setting.',
-            defaultValue: false,
-        },
-        dhcpRanges: {
-            title: 'DHCP Server Ranges',
-            radioGroups: ['Enabled'],
-            type: 'string',
-            description: 'The DHCP range to use for this network interface. If not specified, a default range between will be used. E.g.: 192.168.10.10,192.168.10.200,12h',
-            placeholder: '192.168.10.10,192.168.10.200,12h',
-            multiple: true,
-        },
-        dhcpGateway: {
-            title: 'DHCP Gateway',
-            radioGroups: ['Enabled'],
-            type: 'string',
-            description: 'Advanced: The DHCP gateway to use for this network interface. If not specified, this interface\'s address will be used.',
         },
 
         applyChanges: {
@@ -404,7 +422,9 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             this.storageSettings.settings.dhcpServer.hide = true;
             this.storageSettings.settings.dhcpRanges.hide = true;
             this.storageSettings.settings.dhcpGateway.hide = true;
-            this.storageSettings.settings.dnsServers.hide = true;
+            this.storageSettings.settings.dnsConfiguration.radioGroups = [
+                'Address Configuration:Auto',
+            ];
             this.storageSettings.settings.dnsSearchDomains.hide = true;
         }
     }
