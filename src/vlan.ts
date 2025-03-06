@@ -179,7 +179,12 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
                 this.networks.regenerateInterfaces(this.console);
             },
             console: true,
-        }
+        },
+
+        httpsServerPort: {
+            type: 'number',
+            hide: true,
+        },
     });
 
     constructor(public networks: Networks, nativeId: ScryptedNativeId) {

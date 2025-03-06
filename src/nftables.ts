@@ -46,7 +46,7 @@ export function addPortForward(nftables: Set<string>, ip: 'ip' | 'ip6', wanInter
     const forward = `
 table ${ip} filter {
     chain forward_scrypted {
-        iif "${wanInterface}" ip daddr ${dstIp} ${actualProto} dport ${dstPort} accept
+        iif "${wanInterface}" ${ip} daddr ${dstIp} ${actualProto} dport ${dstPort} accept
     }
 }
 `;
@@ -67,7 +67,7 @@ table ${ip} nat {
         const forward = `
             table ${ip} filter {
                 chain forward_scrypted {
-                    iif "${lanInterface}" ip daddr ${dstIp} ${actualProto} dport ${dstPort} accept
+                    iif "${lanInterface}" ${ip} daddr ${dstIp} ${actualProto} dport ${dstPort} accept
                     iif "${lanInterface}" oif "${lanInterface}" ct state established,related accept
                 }
             }

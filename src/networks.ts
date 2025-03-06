@@ -79,6 +79,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             }
         };
 
+        let httpsServerPortStart = 3000;
 
         let tablesStart = 100;
         const tableMaps = new Map<string, number>();
@@ -197,10 +198,6 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                                     priority: 2,
                                 } satisfies RoutingPolicy);
                             }
-
-                            // iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-                            // iptables -A FORWARD -i eth1.10 -o eth0 -j ACCEPT
-                            // iptables -A FORWARD -i eth0 -o eth1.10 -m state --state RELATED,ESTABLISHED -j ACCEPT
 
                             const wanInterface = getInterfaceName(internetVlan.storageSettings.values.parentInterface, internetVlan.storageSettings.values.vlanId);
                             addWanGateway(nftables, 'ip', wanInterface, interfaceName);
@@ -336,40 +333,46 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                 },
             } satisfies EthernetInterface | VlanInterface);
 
-            for (const nativeId of sdk.deviceManager.getNativeIds()) {
-                if (!nativeId?.startsWith('pf'))
-                    continue;
-                const device = sdk.systemManager.getDeviceById(this.pluginId, nativeId);
-                if (device.providerId !== vlan.id)
-                    continue;
-                const portforward = await vlan.getDevice(nativeId) as PortForward;
-                const { srcPort, dstIp, dstPort, protocol } = portforward.storageSettings.values;
-                if (!srcPort || !dstIp || !dstPort || !protocol) {
-                    portforward.console.warn('Source Port, Destination IP, and Destination Port are required for port forward.');
-                    continue;
-                }
+            if (vlan.providedType === ScryptedDeviceType.Internet) {
+                vlan.storageSettings.values.httpsServerPort = httpsServerPortStart++;
+                // addPortForward(nftables, 'ip', interfaceName, new Set(), 'tcp', '443', '127.0.0.1', vlan.storageSettings.values.httpsServerPort);
+                // addPortForward(nftables, 'ip6', interfaceName, new Set(), 'tcp', '443', '::1', vlan.storageSettings.values.httpsServerPort);
 
-                const lanInterfaces = new Set<string>();
-                for (const vlan of this.vlans.values()) {
-                    if (vlan.storageSettings.values.gatewayMode === 'Local Interface' && vlan.storageSettings.values.internet === interfaceName) {
-                        const vlanInterfaceName = getInterfaceName(vlan.storageSettings.values.parentInterface, vlan.storageSettings.values.vlanId);
-                        lanInterfaces.add(vlanInterfaceName);
+                for (const nativeId of sdk.deviceManager.getNativeIds()) {
+                    if (!nativeId?.startsWith('pf'))
+                        continue;
+                    const device = sdk.systemManager.getDeviceById(this.pluginId, nativeId);
+                    if (device.providerId !== vlan.id)
+                        continue;
+                    const portforward = await vlan.getDevice(nativeId) as PortForward;
+                    const { srcPort, dstIp, dstPort, protocol } = portforward.storageSettings.values;
+                    if (!srcPort || !dstIp || !dstPort || !protocol) {
+                        portforward.console.warn('Source Port, Destination IP, and Destination Port are required for port forward.');
+                        continue;
+                    }
 
-                        // need this route policy for hairpinning.
-                        if (vlan.storageSettings.values.addressMode === 'Manual') {
-                            const vlanTable = ensureTable(vlanInterfaceName);
-                            for (const address of vlan.storageSettings.values.addresses) {
-                                routingPolicy.push({
-                                    from: address,
-                                    table: vlanTable,
-                                    priority: 1,
-                                } satisfies RoutingPolicy);
+                    const lanInterfaces = new Set<string>();
+                    for (const vlan of this.vlans.values()) {
+                        if (vlan.storageSettings.values.gatewayMode === 'Local Interface' && vlan.storageSettings.values.internet === interfaceName) {
+                            const vlanInterfaceName = getInterfaceName(vlan.storageSettings.values.parentInterface, vlan.storageSettings.values.vlanId);
+                            lanInterfaces.add(vlanInterfaceName);
+
+                            // need this route policy for hairpinning.
+                            if (vlan.storageSettings.values.addressMode === 'Manual') {
+                                const vlanTable = ensureTable(vlanInterfaceName);
+                                for (const address of vlan.storageSettings.values.addresses) {
+                                    routingPolicy.push({
+                                        from: address,
+                                        table: vlanTable,
+                                        priority: 1,
+                                    } satisfies RoutingPolicy);
+                                }
                             }
                         }
                     }
-                }
 
-                addPortForward(nftables, 'ip', interfaceName, lanInterfaces, protocol, srcPort, dstIp, dstPort);
+                    addPortForward(nftables, 'ip', interfaceName, lanInterfaces, protocol, srcPort, dstIp, dstPort);
+                }
             }
         }
 
