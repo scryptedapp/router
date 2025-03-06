@@ -216,7 +216,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
 
     async getDevice(nativeId: ScryptedNativeId) {
         if (nativeId?.startsWith('pf'))
-            return new PortForward(nativeId);
+            return new PortForward(this, nativeId);
         else if (nativeId?.startsWith('ar'))
             return new AddressReservation(nativeId);
     }
@@ -310,7 +310,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
                     ScryptedInterface.Settings
                 ],
             });
-            const portForward = new PortForward(nativeId);
+            const portForward = new PortForward(this, nativeId);
             portForward.storageSettings.values.protocol = settings.protocol;
             portForward.storageSettings.values.srcPort = settings.srcPort;
             portForward.storageSettings.values.dstIp = settings.dstIp;
@@ -401,6 +401,17 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             this.storageSettings.settings.dnsServers.hide = true;
             this.storageSettings.settings.dnsSearchDomains.hide = true;
         }
+    }
+
+    async getLocalNetworks() {
+        const interfaceName = getInterfaceName(this.storageSettings.values.parentInterface, this.storageSettings.values.vlanId);
+        const vlans: Vlan[] = [];
+        for (const vlan of this.networks.vlans.values()) {
+            if (vlan.storageSettings.values.gatewayMode === 'Local Interface' && vlan.storageSettings.values.internet === interfaceName) {
+                vlans.push(vlan);
+            }
+        }
+        return vlans;
     }
 
     async getPortForwards() {

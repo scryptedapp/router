@@ -340,30 +340,30 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
                 for (const portforward of await vlan.getPortForwards()) {
                     const { srcPort, dstIp, dstPort, protocol } = portforward.storageSettings.values;
+
+                    if (protocol.startsWith('http'))
+                        continue;
+
                     if (!srcPort || !dstIp || !dstPort || !protocol) {
                         portforward.console.warn('Source Port, Destination IP, and Destination Port are required for port forward.');
                         continue;
                     }
 
-                    if (protocol.startsWith('http'))
-                        continue;
-
                     const lanInterfaces = new Set<string>();
-                    for (const vlan of this.vlans.values()) {
-                        if (vlan.storageSettings.values.gatewayMode === 'Local Interface' && vlan.storageSettings.values.internet === interfaceName) {
-                            const vlanInterfaceName = getInterfaceName(vlan.storageSettings.values.parentInterface, vlan.storageSettings.values.vlanId);
-                            lanInterfaces.add(vlanInterfaceName);
+                    const locals = await vlan.getLocalNetworks();
+                    for (const vlan of locals) {
+                        const vlanInterfaceName = getInterfaceName(vlan.storageSettings.values.parentInterface, vlan.storageSettings.values.vlanId);
+                        lanInterfaces.add(vlanInterfaceName);
 
-                            // need this route policy for hairpinning.
-                            if (vlan.storageSettings.values.addressMode === 'Manual') {
-                                const vlanTable = ensureTable(vlanInterfaceName);
-                                for (const address of vlan.storageSettings.values.addresses) {
-                                    routingPolicy.push({
-                                        from: address,
-                                        table: vlanTable,
-                                        priority: 1,
-                                    } satisfies RoutingPolicy);
-                                }
+                        // need this route policy for hairpinning.
+                        if (vlan.storageSettings.values.addressMode === 'Manual') {
+                            const vlanTable = ensureTable(vlanInterfaceName);
+                            for (const address of vlan.storageSettings.values.addresses) {
+                                routingPolicy.push({
+                                    from: address,
+                                    table: vlanTable,
+                                    priority: 1,
+                                } satisfies RoutingPolicy);
                             }
                         }
                     }
