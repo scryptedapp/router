@@ -71,8 +71,15 @@ export class PortForward extends ScryptedDeviceBase implements Settings {
     }
 
     updateInfo() {
-        this.info = {
-            description: `${this.storageSettings.values.protocol || 'unconfigured'} port ${this.storageSettings.values.srcPort || 'unconfigured'} to ${this.storageSettings.values.dstIp || 'unconfigured ip'}:${this.storageSettings.values.dstPort || 'unconfigured port'}`,
+        if (this.storageSettings.values.protocol === 'http(s)') {
+            this.info = {
+                description: `${this.storageSettings.values.dstAddress || (this.storageSettings.values.caddyfile ? 'custom Caddyfile' : 'unconfigured address')}`,
+            }
+        }
+        else {
+            this.info = {
+                description: `${this.storageSettings.values.protocol || 'unconfigured'} port ${this.storageSettings.values.srcPort || 'unconfigured'} to ${this.storageSettings.values.dstIp || 'unconfigured ip'}:${this.storageSettings.values.dstPort || 'unconfigured port'}`,
+            }
         }
     }
 

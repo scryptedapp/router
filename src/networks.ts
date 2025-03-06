@@ -13,10 +13,7 @@ import { getInterfaceName } from "./interface-name";
 import { EthernetInterface, NetplanConfig, Route, RoutingPolicy, VlanInterface } from "./netplan";
 import { addPortForward, addWanGateway, flushChains } from './nftables';
 import { Vlan } from "./vlan";
-
-
-const fakeLoopbackv4 = '192.168.255.1/32';
-const fakeLoopbackv6 = 'fc00::1/128';
+import { fakeLoopbackv4, fakeLoopbackv6 } from "./fake-loopback";
 
 export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator, Settings {
     vlans = new Map<string, Vlan>();
@@ -395,9 +392,13 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                 // ip addr add 192.168.255.1/32 dev lo
                 // ip -6 addr add fc00::1/128 dev lo
                 // 192.168.255.1/32
-                addPortForward(nftables, 'ip', interfaceName, loset, 'tcp', vlan.storageSettings.values.httpsServerPort, '192.168.255.1', vlan.storageSettings.values.httpsServerPort);
+                const httpsPort = vlan.storageSettings.values.httpsServerPort;
+                const httpPort = vlan.storageSettings.values.httpsServerPort + 1;
+                addPortForward(nftables, 'ip', interfaceName, loset, 'tcp', '443', parseCidrIp(fakeLoopbackv4), httpsPort);
+                addPortForward(nftables, 'ip', interfaceName, loset, 'tcp', '80', parseCidrIp(fakeLoopbackv4), httpPort);
                 // fc00::1/128
-                addPortForward(nftables, 'ip6', interfaceName, loset, 'tcp', vlan.storageSettings.values.httpsServerPort, 'fc00::1', vlan.storageSettings.values.httpsServerPort);
+                addPortForward(nftables, 'ip6', interfaceName, loset, 'tcp', '443', parseCidrIp(fakeLoopbackv6), httpsPort);
+                addPortForward(nftables, 'ip6', interfaceName, loset, 'tcp', '80', parseCidrIp(fakeLoopbackv6), httpPort);
 
                 for (const portforward of await vlan.getPortForwards()) {
                     const { srcPort, dstIp, dstPort, protocol } = portforward.storageSettings.values;

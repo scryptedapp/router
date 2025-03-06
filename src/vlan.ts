@@ -2,10 +2,12 @@ import sdk, { AdoptDevice, DeviceCreator, DeviceCreatorSettings, DeviceDiscovery
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import crypto from 'crypto';
 import fs from 'fs';
+import net from 'net';
 import os from 'os';
 import path from 'path';
 import { AddressReservation, getAddressReservationSettings } from "./address-reservation";
 import { parseCidrIp } from './cidr';
+import { fakeLoopbackv4, fakeLoopbackv6 } from "./fake-loopback";
 import { getInterfaceName } from './interface-name';
 import type { Networks } from "./networks";
 import { getPortForwardSettings, PortForward } from "./port-forward";
@@ -339,6 +341,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             portForward.storageSettings.values.dstAddress = settings.dstAddress;
             portForward.storageSettings.values.dnsSetup = settings.dnsSetup;
             portForward.storageSettings.values.cloudflareDns = settings.cloudflareDns;
+            portForward.storageSettings.values.caddyfile = settings.caddyfile;
 
             return id;
         }
@@ -460,20 +463,45 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             return;
         }
 
+        const localAddresses: string[] = [];
+        const localNetworks = await this.getLocalNetworks();
+        const nameMap = new Map<string, string>();
+
+        for (const localNetwork of localNetworks) {
+            if (localNetwork.storageSettings.values.addressMode === 'Manual') {
+                const ipv4 = (localNetwork.storageSettings.values.addresses as string[]).map(cidr => parseCidrIp(cidr)).find(ip => net.isIPv4(ip));
+                if (!ipv4)
+                    continue;
+                localAddresses.push(ipv4);
+
+                const discovered = await (localNetwork.discoverDevices().catch(() => { }));
+                if (discovered) {
+                    for (const d of discovered) {
+                        nameMap.set(d.name?.toLowerCase(), ipv4);
+                    }
+                }
+            }
+        }
+
         let caddyfile = '';
         const portforwards = await this.getPortForwards();
         for (const portforward of portforwards) {
-            const { dstAddress, srcDomain, protocol, dnsSetup, cloudflareDns } = portforward.storageSettings.values;
+            const { dstAddress, srcDomain, protocol, dnsSetup, cloudflareDns, caddyfile: caddyfileBlock } = portforward.storageSettings.values;
             if (!protocol.startsWith('http'))
                 continue;
 
-            let dstUrl: URL;
+            let dstUrl: URL | undefined;
             try {
                 dstUrl = new URL(dstAddress);
             }
             catch (e) {
-                portforward.console.warn('Invalid Destination Address.');
-                continue;
+                if (caddyfileBlock) {
+                    portforward.console.log('Destination Address is unset, using provided Caddyfile.');
+                }
+                else {
+                    portforward.console.warn('Invalid Destination Address.');
+                    continue;
+                }
             }
 
             if (!srcDomain) {
@@ -493,20 +521,43 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             }
 
             const { httpsServerPort } = this.storageSettings.values;
+
+            let reverseProxyOrigin = '';
+            if (dstUrl) {
+                reverseProxyOrigin = `
+    reverse_proxy /* ${dstUrl.origin} {
+        transport http {
+                resolvers ${nameMap.get(dstUrl.hostname.toLowerCase()) || localAddresses.join(' ')}
+        }
+    }
+`;
+            }
+
             caddyfile += `
 http://${srcDomain}:${httpsServerPort + 1} {
-        reverse_proxy /* ${dstUrl.origin}
+    bind ${parseCidrIp(fakeLoopbackv4)}
+    bind ${parseCidrIp(fakeLoopbackv6)}
+
+    ${caddyfileBlock}
+
+    ${reverseProxyOrigin}
 }
 
 https://${srcDomain}:${httpsServerPort} {
-        reverse_proxy /* ${dstUrl.origin}
+    bind ${parseCidrIp(fakeLoopbackv4)}
+    bind ${parseCidrIp(fakeLoopbackv6)}
 
-        tls {
-                ${dns}
-        }
+    ${caddyfileBlock}
+
+    ${reverseProxyOrigin}
+
+    tls {
+            ${dns}
+    }
 }
 `;
         }
+
 
         if (!caddyfile) {
             await removeServiceFile('caddy', this.nativeId!, this.console);
@@ -521,7 +572,8 @@ https://${srcDomain}:${httpsServerPort} {
     }
 }
 
-${caddyfile}`;
+${caddyfile}
+`;
 
         const caddyfilePath = path.join('/etc', `Caddyfile.${this.nativeId}`);
 
