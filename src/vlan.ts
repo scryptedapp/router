@@ -480,7 +480,7 @@ After=network.target
 User=root
 Group=root
 Type=simple
-ExecStart=dnsmasq -d -R -i ${interfaceName} --except-interface=lo -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} ${dnsSearchDomains} --dhcp-option=3,${dhcpGateway} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')} --dhcp-leasefile=${this.leaseFile} --dhcp-hostsfile=${hostsFile}
+ExecStart=dnsmasq -d -R -h --host-record=${os.hostname()},${addressWithoutMask} -i ${interfaceName} --except-interface=lo -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} ${dnsSearchDomains} --dhcp-option=3,${dhcpGateway} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')} --dhcp-leasefile=${this.leaseFile} --dhcp-hostsfile=${hostsFile}
 Restart=always
 RestartSec=3
 StandardOutput=null
