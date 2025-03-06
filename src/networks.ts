@@ -6,13 +6,18 @@ import net from 'net';
 import os from 'os';
 import path from 'path';
 import yaml from 'yaml';
+import { parseCidrIp } from "./cidr";
 import { runCommand } from "./cli";
 import { createDhcpWatcher } from './dchp-watcher';
 import { getInterfaceName } from "./interface-name";
 import { EthernetInterface, NetplanConfig, Route, RoutingPolicy, VlanInterface } from "./netplan";
 import { addPortForward, addWanGateway, flushChains } from './nftables';
-import { PortForward } from './port-forward';
 import { Vlan } from "./vlan";
+
+
+const fakeLoopbackv4 = '192.168.255.1/32';
+const fakeLoopbackv6 = 'fc00::1/128';
+
 export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator, Settings {
     vlans = new Map<string, Vlan>();
     storageSettings = new StorageSettings(this, {
@@ -77,8 +82,8 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                         addresses: [
                             "127.0.0.1/8",
                             "::1/128",
-                            '192.168.255.1/32',
-                            'fc00::1/128',
+                            fakeLoopbackv4,
+                            fakeLoopbackv6,
                         ]
                     }
                 },
@@ -128,6 +133,8 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                 vlan.storageSettings.values.gatewayMode = 'Manual';
 
             let { addresses, addressMode, dnsServers, internet, gateway4, gateway6, gatewayMode } = vlan.storageSettings.values;
+
+            const addressIps = (addresses as string[]).map(a => parseCidrIp(a));
 
             const dhcpClient = addressMode === 'Auto';
 
@@ -204,8 +211,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                 (addresses as string[]).splice(0, addresses.length);
             }
             else {
-                for (const address of addresses as string[]) {
-                    const [ip] = address.split('/');
+                for (const ip of addressIps) {
                     routingPolicy.push({
                         from: ip,
                         table,
@@ -234,7 +240,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
                             // add a new routing policy specifically for this internet
                             for (const address of addresses as string[]) {
-                                const [ip] = address.split('/');
+                                const ip = parseCidrIp(address);
                                 routingPolicy.push({
                                     from: vlan.storageSettings.values.dhcpServer === 'Enabled' ? address : ip,
                                     table: internetTable,
@@ -252,8 +258,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                             }
 
                             if (internetVlan.storageSettings.values.addressMode !== 'Auto') {
-                                for (const address of addresses) {
-                                    const [ip] = address.split('/');
+                                for (const ip of addressIps) {
                                     if (net.isIPv4(ip) && internetVlan.storageSettings.values.gateway4) {
                                         routes.push(
                                             {
@@ -280,11 +285,10 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                                 // need to hook dhclient and set the route manually.
                                 // one option is to call this plugin, but the better option is probably to
                                 // set the route table manually.
-                                for (const address of addresses) {
-                                    const [fromIp] = address.split('/');
+                                for (const ip of addressIps) {
                                     dhclientPairs.push({
                                         wanInterface,
-                                        fromIp,
+                                        fromIp: ip,
                                         table: internetTable,
                                     } satisfies { wanInterface: string; fromIp: string; table: number });
                                 }
@@ -297,8 +301,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                     // remove the default route blackhole
                     routes.splice(routes.indexOf(defaultRoute), 1);
 
-                    for (const address of addresses) {
-                        const [ip] = address.split('/');
+                    for (const ip of addressIps) {
                         if (net.isIPv4(ip) && gateway4) {
                             routes.push(
                                 {

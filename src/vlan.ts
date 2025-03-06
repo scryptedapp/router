@@ -1,14 +1,15 @@
-import path from 'path';
 import sdk, { AdoptDevice, DeviceCreator, DeviceCreatorSettings, DeviceDiscovery, DeviceProvider, DiscoveredDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedNativeId, ScryptedSystemDevice, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
+import path from 'path';
+import { AddressReservation, getAddressReservationSettings } from "./address-reservation";
+import { parseCidrIp } from './cidr';
 import { getInterfaceName } from './interface-name';
 import type { Networks } from "./networks";
 import { getPortForwardSettings, PortForward } from "./port-forward";
 import { getServiceFile, removeServiceFile, systemctlDaemonReload, systemctlDisable, systemctlEnable, systemctlRestart, systemctlStop } from "./systemd";
-import { AddressReservation, getAddressReservationSettings } from "./address-reservation";
 
 
 function findInterfaceAddress(name: string) {
@@ -602,7 +603,7 @@ WantedBy=multi-user.target
         const serverArgs = servers.map(server => ['-S', server]).flat();
 
         const address: string = this.storageSettings.values.addresses[0];
-        const addressWithoutMask = address.split('/')[0];
+        const addressWithoutMask = parseCidrIp(address);
 
         let dhcpRanges: string[] = this.storageSettings.values.dhcpRanges;
         if (!dhcpRanges?.length) {

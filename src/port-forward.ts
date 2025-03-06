@@ -48,7 +48,14 @@ export function getPortForwardSettings(device: StorageSettingsDevice){
         cloudflareDns: {
             radioGroups: ['Cloudflare'],
             title: 'Cloudflare Authentication',
-            description: 'Provide a Cloudflare authentication token to manage this domain.',
+            description: 'Cloudflare token used for the DNS-01 challenge to verify domain ownership.',
+        },
+        caddyfile: {
+            radioGroups: ['http(s)'],
+            title: 'Caddyfile',
+            description: 'Additional configuration to place inside the Caddyfile block for this domain.',
+            type: 'textarea',
+            defaultValue: '',
         }
     });
     return ret;
