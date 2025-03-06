@@ -1,9 +1,10 @@
-import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedNativeId, Setting } from "@scrypted/sdk";
+import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedNativeId, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import crypto from 'crypto';
 import fs from 'fs';
 import net from 'net';
 import os from 'os';
+import path from 'path';
 import yaml from 'yaml';
 import { runCommand } from "./cli";
 import { createDhcpWatcher } from './dchp-watcher';
@@ -12,8 +13,14 @@ import { EthernetInterface, NetplanConfig, Route, RoutingPolicy, VlanInterface }
 import { addPortForward, addWanGateway, flushChains } from './nftables';
 import { PortForward } from './port-forward';
 import { Vlan } from "./vlan";
-export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator {
+export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator, Settings {
     vlans = new Map<string, Vlan>();
+    storageSettings = new StorageSettings(this, {
+        defaultInternet: {
+            title: 'Default Internet',
+            type: 'device',
+        }
+    });
 
     constructor(nativeId: ScryptedNativeId) {
         super(nativeId);
@@ -29,6 +36,31 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         }
 
         this.regenerateInterfaces(this.console);
+
+
+        this.storageSettings.settings.defaultInternet.onGet = async () => {
+            const choices: string[] = [];
+            for (const nativeId of sdk.deviceManager.getNativeIds()) {
+                if (nativeId?.startsWith('sv')) {
+                    const device = await this.getDevice(nativeId) as Vlan;
+                    if (device.providedType === ScryptedDeviceType.Internet) {
+                        choices.push(device.id);
+                    }
+                }
+            }
+
+            return {
+                deviceFilter: `${JSON.stringify(choices)}.includes(id)`,
+            }
+        }
+    }
+
+    getSettings(): Promise<Setting[]> {
+        return this.storageSettings.getSettings();
+    }
+
+    putSetting(key: string, value: SettingValue): Promise<void> {
+        return this.storageSettings.putSetting(key, value);
     }
 
     async regenerateInterfaces(console: Console) {
@@ -58,6 +90,15 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         const nftables = new Set<string>();
         flushChains(nftables);
 
+        const ensureTable = (interfaceName: string) => {
+            let table = tableMaps.get(interfaceName);
+            if (!table) {
+                table = tablesStart++;
+                tableMaps.set(interfaceName, table);
+            }
+            return table;
+        }
+
         for (const vlan of this.vlans.values()) {
             const vlanId = vlan.storageSettings.values.vlanId;
             if (!vlanId) {
@@ -73,13 +114,13 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
             allParents.add(parentInterface);
 
-            let { addresses, dhcpMode, dnsServers, internet, gateway4, gateway6, gatewayMode } = vlan.storageSettings.values;
+            let { addresses, addressMode, dnsServers, internet, gateway4, gateway6, gatewayMode } = vlan.storageSettings.values;
             if (gatewayMode !== 'Manual') {
                 gateway4 = undefined;
                 gateway6 = undefined;
             }
 
-            const dhcpClient = dhcpMode === 'Auto';
+            const dhcpClient = addressMode === 'Auto';
             if (!addresses.length && !dhcpClient)
                 vlan.console.warn('Address is unconfigured.');
 
@@ -93,11 +134,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
             const interfaceName = getInterfaceName(parentInterface, vlanId);
 
-            let table = tableMaps.get(interfaceName);
-            if (!table) {
-                table = tablesStart++;
-                tableMaps.set(interfaceName, table);
-            }
+            const table = ensureTable(interfaceName);
 
             const defaultRoute: Route = {
                 to: ipv4Default,
@@ -146,11 +183,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                             this.console.warn(`Internet interface ${internet} not found or is not managed directly.`);
                         }
                         else {
-                            let internetTable = tableMaps.get(internet);
-                            if (!internetTable) {
-                                internetTable = tablesStart++;
-                                tableMaps.set(internet, internetTable);
-                            }
+                            const internetTable = ensureTable(internet);
 
                             // remove the default route blackhole
                             routes.splice(routes.indexOf(defaultRoute), 1);
@@ -178,7 +211,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                                 addWanGateway(nftables, 'ip6', wanInterface, interfaceName);
                             }
 
-                            if (internetVlan.storageSettings.values.dhcpMode !== 'Auto') {
+                            if (internetVlan.storageSettings.values.addressMode !== 'Auto') {
                                 for (const address of addresses) {
                                     const [ip] = address.split('/');
                                     if (net.isIPv4(ip) && internetVlan.storageSettings.values.gateway4) {
@@ -234,7 +267,16 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                                     via: gateway4,
                                     table,
                                 }
-                            )
+                            );
+
+                            if (this.storageSettings.values.defaultInternet.id === vlan.id) {
+                                routes.push(
+                                    {
+                                        to: ipv4Default,
+                                        via: gateway4,
+                                    }
+                                );
+                            }
                         }
                         else if (net.isIPv6(ip) && gateway6) {
                             routes.push(
@@ -244,7 +286,16 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                                     via: gateway6,
                                     table,
                                 }
-                            )
+                            );
+
+                            if (this.storageSettings.values.defaultInternet.id === vlan.id) {
+                                routes.push(
+                                    {
+                                        to: ipv6Default,
+                                        via: gateway6,
+                                    }
+                                );
+                            }
                         }
                     }
                 }
@@ -298,7 +349,28 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                     continue;
                 }
 
-                addPortForward(nftables, 'ip', interfaceName, protocol, srcPort, dstIp, dstPort);
+                const lanInterfaces = new Set<string>();
+                for (const vlan of this.vlans.values()) {
+                    if (vlan.storageSettings.values.gatewayMode === 'Local Interface' && vlan.storageSettings.values.internet === interfaceName) {
+                        const vlanInterfaceName = getInterfaceName(vlan.storageSettings.values.parentInterface, vlan.storageSettings.values.vlanId);
+                        lanInterfaces.add(vlanInterfaceName);
+
+                        // need this route policy for hairpinning.
+                        if (vlan.storageSettings.values.addressMode === 'Manual') {
+                            const vlanTable = ensureTable(vlanInterfaceName);
+                            for (const address of vlan.storageSettings.values.addresses) {
+                                routingPolicy.push({
+                                    from: address,
+                                    table: vlanTable,
+                                    priority: 1,
+                                } satisfies RoutingPolicy);
+                            }
+                        }
+                    }
+                }
+
+                const ipv4Addresses = (addresses as string[] || []).map(address => address.split('/')[0]).filter(address => net.isIPv4(address));
+                addPortForward(nftables, 'ip', interfaceName, ipv4Addresses, lanInterfaces, protocol, srcPort, dstIp, dstPort);
             }
         }
 
@@ -330,6 +402,10 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             mode: 0o600,
         });
         await runCommand('nft', ['-f', '/etc/nftables.d/02-scrypted.conf'], console);
+    }
+
+    get netplanFile() {
+        return path.join(process.env.SCRYPTED_PLUGIN_VOLUME!, `netplan-scrypted.yaml`);
     }
 
     async releaseDevice(id: string, nativeId: ScryptedNativeId) {
@@ -365,8 +441,8 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             networkType: {
                 title: 'Network Type',
                 type: 'string',
-                choices: ['Local Network', 'Bridge', 'Internet'],
-                defaultValue: 'Local Network',
+                choices: ['Network', 'Bridge', 'Internet'],
+                defaultValue: 'Network',
             },
             parentInterface: {
                 title: 'Network Interface',
@@ -384,7 +460,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
     async createDevice(settings: DeviceCreatorSettings): Promise<string> {
         const nativeId = `sv${crypto.randomBytes(2).toString('hex')}`;
 
-        let type = 'Local Network';
+        let type = 'Network';
         if (settings.networkType === 'Bridge')
             type = 'Bridge';
         else if (settings.networkType === 'Internet')

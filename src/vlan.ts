@@ -64,8 +64,21 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             defaultValue: [
             ],
         },
-
-        dhcpMode: {
+        dnsSearchDomains: {
+            title: 'DNS Search Domains',
+            type: 'string',
+            description: 'The DNS search domains to use for this network interface.',
+            multiple: true,
+            combobox: true,
+            choices: [
+                'local',
+                'localdomain',
+            ],
+            defaultValue: [
+                'localdomain',
+            ]
+        },
+        addressMode: {
             title: 'Address Configuration',
             description: 'The Address Configuration to use for this network interface.',
             choices: [
@@ -151,6 +164,12 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             description: 'The DHCP range to use for this network interface. If not specified, a default range between will be used. E.g.: 192.168.10.10,192.168.10.200,12h',
             placeholder: '192.168.10.10,192.168.10.200,12h',
             multiple: true,
+        },
+        dhcpGateway: {
+            title: 'DHCP Gateway',
+            radioGroups: ['Enabled'],
+            type: 'string',
+            description: 'Advanced: The DHCP gateway to use for this network interface. If not specified, this interface\'s address will be used.',
         },
 
         applyChanges: {
@@ -373,6 +392,9 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             this.storageSettings.settings.gateway6.radioGroups = ['Manual'];
             this.storageSettings.settings.dhcpServer.hide = true;
             this.storageSettings.settings.dhcpRanges.hide = true;
+            this.storageSettings.settings.dhcpGateway.hide = true;
+            this.storageSettings.settings.dnsServers.hide = true;
+            this.storageSettings.settings.dnsSearchDomains.hide = true;
         }
     }
 
@@ -386,7 +408,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         else {
             // await ifup(interfaceName, this.console);
 
-            if (this.storageSettings.values.dhcpMode !== 'Manual' || this.storageSettings.values.dhcpServer !== 'Enabled') {
+            if (this.storageSettings.values.addressMode !== 'Manual' || this.storageSettings.values.dhcpServer !== 'Enabled') {
                 await removeServiceFile('vlan', this.nativeId!, this.console);
             }
             else {
@@ -446,6 +468,9 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
 
                         await fs.promises.writeFile(hostsFile, dhcpHosts.join('\n'));
 
+                        const dhcpGateway = this.storageSettings.values.dhcpGateway || addressWithoutMask;
+                        const dnsSearchDomains = this.storageSettings.values.dnsSearchDomains.length ? `--dhcp-option=119,${this.storageSettings.values.dnsSearchDomains.join(',')}` : '';
+
                         const serviceFileContents = `
 [Unit]
 Description=DHCP for VLAN ${this.storageSettings.values.vlanId}
@@ -455,7 +480,7 @@ After=network.target
 User=root
 Group=root
 Type=simple
-ExecStart=dnsmasq -d -R -i ${interfaceName} --except-interface=lo -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')} --dhcp-leasefile=${this.leaseFile} --dhcp-hostsfile=${hostsFile}
+ExecStart=dnsmasq -d -R -i ${interfaceName} --except-interface=lo -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} ${dnsSearchDomains} --dhcp-option=3,${dhcpGateway} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')} --dhcp-leasefile=${this.leaseFile} --dhcp-hostsfile=${hostsFile}
 Restart=always
 RestartSec=3
 StandardOutput=null
