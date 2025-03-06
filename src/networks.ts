@@ -338,18 +338,15 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                 // addPortForward(nftables, 'ip', interfaceName, new Set(), 'tcp', '443', '127.0.0.1', vlan.storageSettings.values.httpsServerPort);
                 // addPortForward(nftables, 'ip6', interfaceName, new Set(), 'tcp', '443', '::1', vlan.storageSettings.values.httpsServerPort);
 
-                for (const nativeId of sdk.deviceManager.getNativeIds()) {
-                    if (!nativeId?.startsWith('pf'))
-                        continue;
-                    const device = sdk.systemManager.getDeviceById(this.pluginId, nativeId);
-                    if (device.providerId !== vlan.id)
-                        continue;
-                    const portforward = await vlan.getDevice(nativeId) as PortForward;
+                for (const portforward of await vlan.getPortForwards()) {
                     const { srcPort, dstIp, dstPort, protocol } = portforward.storageSettings.values;
                     if (!srcPort || !dstIp || !dstPort || !protocol) {
                         portforward.console.warn('Source Port, Destination IP, and Destination Port are required for port forward.');
                         continue;
                     }
+
+                    if (protocol.startsWith('http'))
+                        continue;
 
                     const lanInterfaces = new Set<string>();
                     for (const vlan of this.vlans.values()) {

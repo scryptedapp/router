@@ -7,7 +7,7 @@ export function getPortForwardSettings(device: StorageSettingsDevice){
             title: 'Protocol',
             description: 'The protocol to forward.',
             type: 'string',
-            choices: ['tcp + udp', 'tcp', 'udp', 'https'],
+            choices: ['tcp + udp', 'tcp', 'udp', 'http(s)'],
             defaultValue: 'tcp',
         },
         srcPort: {

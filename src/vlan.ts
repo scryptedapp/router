@@ -403,80 +403,160 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         }
     }
 
+    async getPortForwards() {
+        const ret: PortForward[] = [];
+        for (const nativeId of sdk.deviceManager.getNativeIds()) {
+            if (!nativeId?.startsWith('pf'))
+                continue;
+            const device = sdk.systemManager.getDeviceById(this.pluginId, nativeId);
+            if (device.providerId !== this.id)
+                continue;
+            const portforward = await this.getDevice(nativeId) as PortForward;
+            ret.push(portforward);
+        }
+        return ret;
+    }
+
+    async setupCaddy() {
+        if (true || this.providedType !== ScryptedDeviceType.Internet) {
+            await removeServiceFile('caddy', this.nativeId!, this.console);
+            return;
+        }
+
+        const caddyfile = ``;
+        const caddyfilePath = path.join('/etc', `Caddyfile.${this.nativeId}`);
+
+        const serviceFileContents = `
+# caddy.service
+#
+# For using Caddy with a config file.
+#
+# Make sure the ExecStart and ExecReload commands are correct
+# for your installation.
+#
+# See https://caddyserver.com/docs/install for instructions.
+#
+# WARNING: This service does not use the --resume flag, so if you
+# use the API to make changes, they will be overwritten by the
+# Caddyfile next time the service is restarted. If you intend to
+# use Caddy's API to configure it, add the --resume flag to the
+# \`caddy run\` command or use the caddy-api.service file instead.
+
+[Unit]
+Description=Caddy
+Documentation=https://caddyserver.com/docs/
+After=network.target network-online.target
+Requires=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/caddy run -c ${caddyfilePath}
+ExecReload=/usr/local/bin/caddy run --force -c ${caddyfilePath}
+WorkingDirectory=/root
+TimeoutStopSec=5s
+LimitNOFILE=1048576
+PrivateTmp=true
+ProtectSystem=full
+AmbientCapabilities=CAP_NETd_ADMIN CAP_NET_BIND_SERVICE
+#Environment=CADDY_ADMIN=10.0.0.1:2019
+Environment=HOME=/root
+
+[Install]
+WantedBy=multi-user.target
+`;
+
+        await fs.promises.writeFile(caddyfilePath, caddyfile);
+        await fs.promises.writeFile(getServiceFile('caddy', this.nativeId!), serviceFileContents);
+
+        await systemctlDaemonReload(this.console);
+        await systemctlEnable('caddy', this.nativeId!, this.console);
+        await systemctlRestart('caddy', this.nativeId!, this.console);
+    }
+
     async initializeNetworkInterface() {
         const interfaceName = getInterfaceName(this.storageSettings.values.parentInterface, this.storageSettings.values.vlanId);
         const serviceFile = getServiceFile('vlan', this.nativeId!);
 
         if (!this.storageSettings.values.parentInterface || !this.storageSettings.values.parentInterface) {
+            // invalid config
             await removeServiceFile('vlan', this.nativeId!, this.console);
+            await removeServiceFile('caddy', this.nativeId!, this.console);
+            return;
         }
-        else {
-            // await ifup(interfaceName, this.console);
 
-            if (this.storageSettings.values.addressMode !== 'Manual' || this.storageSettings.values.dhcpServer !== 'Enabled') {
-                await removeServiceFile('vlan', this.nativeId!, this.console);
-            }
-            else {
-                if (!this.storageSettings.values.addresses.length) {
-                    this.console.warn('Address is required if DHCP Mode is Server.');
-                    await removeServiceFile('vlan', this.nativeId!, this.console);
+        if (this.storageSettings.values.addressMode === 'Auto' || this.storageSettings.values.dhcpServer !== 'Enabled') {
+            // no dhcp server in use
+            await removeServiceFile('vlan', this.nativeId!, this.console);
+            await this.setupCaddy();
+            return;
+        }
+
+        if (!this.storageSettings.values.addresses.length) {
+            // invalid config
+            this.console.warn('Address is required if DHCP Mode is Server.');
+            await removeServiceFile('vlan', this.nativeId!, this.console);
+            await removeServiceFile('caddy', this.nativeId!, this.console);
+            return;
+        }
+
+        const servers: string[] = this.storageSettings.values.dnsServers;
+        // insert -S between each server
+        const serverArgs = servers.map(server => ['-S', server]).flat();
+
+        const address: string = this.storageSettings.values.addresses[0];
+        const addressWithoutMask = address.split('/')[0];
+
+        let dhcpRanges: string[] = this.storageSettings.values.dhcpRanges;
+        if (!dhcpRanges?.length) {
+            dhcpRanges = [];
+            let start = 1;
+            const dotParts = addressWithoutMask.split('.');
+            if (dotParts.length === 4) {
+                const withoutEnd = addressWithoutMask.split('.').slice(0, 3).join('.');
+                const end = parseInt(dotParts[3]);
+                if (addressWithoutMask.endsWith('.1')) {
+                    dhcpRanges.push(`${withoutEnd}.2,${withoutEnd}.220,12h`);
                 }
                 else {
-                    const servers: string[] = this.storageSettings.values.dnsServers;
-                    // insert -S between each server
-                    const serverArgs = servers.map(server => ['-S', server]).flat();
+                    dhcpRanges.push(`${withoutEnd}.1,${withoutEnd}.${end - 1},12h`);
+                    dhcpRanges.push(`${withoutEnd}.${end + 1},${withoutEnd}.220,12h`);
+                }
+            }
+        }
 
-                    const address: string = this.storageSettings.values.addresses[0];
-                    const addressWithoutMask = address.split('/')[0];
+        if (!dhcpRanges?.length) {
+            // invalid config but recoverable
+            this.console.warn('DHCP Range is required if DHCP Mode is Server.');
+            await removeServiceFile('vlan', this.nativeId!, this.console);
+            await this.setupCaddy();
+            return;
+        }
 
-                    let dhcpRanges: string[] = this.storageSettings.values.dhcpRanges;
-                    if (!dhcpRanges?.length) {
-                        dhcpRanges = [];
-                        let start = 1;
-                        const dotParts = addressWithoutMask.split('.');
-                        if (dotParts.length === 4) {
-                            const withoutEnd = addressWithoutMask.split('.').slice(0, 3).join('.');
-                            const end = parseInt(dotParts[3]);
-                            if (addressWithoutMask.endsWith('.1')) {
-                                dhcpRanges.push(`${withoutEnd}.2,${withoutEnd}.220,12h`);
-                            }
-                            else {
-                                dhcpRanges.push(`${withoutEnd}.1,${withoutEnd}.${end - 1},12h`);
-                                dhcpRanges.push(`${withoutEnd}.${end + 1},${withoutEnd}.220,12h`);
-                            }
-                        }
-                    }
+        // should persist between container recreation because it can not be regenerated like the hosts file
+        const hostsFile = `/etc/hosts.dnsmasq-${this.nativeId}`;
+        const dhcpHosts: string[] = [];
+        for (const nativeId of sdk.deviceManager.getNativeIds()) {
+            if (!nativeId?.startsWith('ar'))
+                continue;
+            const device = sdk.systemManager.getDeviceById(this.pluginId, nativeId);
+            if (device.providerId !== this.id)
+                continue;
+            const addressReservation = await this.getDevice(nativeId) as AddressReservation;
+            const { mac, ip, host } = addressReservation.storageSettings.values;
+            if (!mac || !ip || !host) {
+                addressReservation.console.warn('Mac, Address, and Host are required for address reservation.');
+                continue;
+            }
 
-                    if (!dhcpRanges?.length) {
-                        this.console.warn('DHCP Range is required if DHCP Mode is Server.');
-                        await removeServiceFile('vlan', this.nativeId!, this.console);
-                    }
-                    else if (this.storageSettings.values.dhcpServer === 'Enabled') {
-                        // should persist between container recreation because it can not be regenerated like the hosts file
-                        const hostsFile = `/etc/hosts.dnsmasq-${this.nativeId}`;
-                        const dhcpHosts: string[] = [];
-                        for (const nativeId of sdk.deviceManager.getNativeIds()) {
-                            if (!nativeId?.startsWith('ar'))
-                                continue;
-                            const device = sdk.systemManager.getDeviceById(this.pluginId, nativeId);
-                            if (device.providerId !== this.id)
-                                continue;
-                            const addressReservation = await this.getDevice(nativeId) as AddressReservation;
-                            const { mac, ip, host } = addressReservation.storageSettings.values;
-                            if (!mac || !ip || !host) {
-                                addressReservation.console.warn('Mac, Address, and Host are required for address reservation.');
-                                continue;
-                            }
+            dhcpHosts.push(`${mac},${ip},${host},infinite`);
+        }
 
-                            dhcpHosts.push(`${mac},${ip},${host},infinite`);
-                        }
+        await fs.promises.writeFile(hostsFile, dhcpHosts.join('\n'));
 
-                        await fs.promises.writeFile(hostsFile, dhcpHosts.join('\n'));
+        const dhcpGateway = this.storageSettings.values.dhcpGateway || addressWithoutMask;
+        const dnsSearchDomains = this.storageSettings.values.dnsSearchDomains.length ? `--dhcp-option=119,${this.storageSettings.values.dnsSearchDomains.join(',')}` : '';
 
-                        const dhcpGateway = this.storageSettings.values.dhcpGateway || addressWithoutMask;
-                        const dnsSearchDomains = this.storageSettings.values.dnsSearchDomains.length ? `--dhcp-option=119,${this.storageSettings.values.dnsSearchDomains.join(',')}` : '';
-
-                        const serviceFileContents = `
+        const serviceFileContents = `
 [Unit]
 Description=DHCP for VLAN ${this.storageSettings.values.vlanId}
 After=network.target
@@ -494,13 +574,12 @@ StandardError=null
 [Install]
 WantedBy=multi-user.target`;
 
-                        await fs.promises.writeFile(serviceFile, serviceFileContents);
-                        await systemctlDaemonReload(this.console);
-                        await systemctlEnable('vlan', this.nativeId!, this.console);
-                        await systemctlRestart('vlan', this.nativeId!, this.console);
-                    }
-                }
-            }
-        }
+        await fs.promises.writeFile(serviceFile, serviceFileContents);
+
+        await this.setupCaddy();
+
+        await systemctlDaemonReload(this.console);
+        await systemctlEnable('vlan', this.nativeId!, this.console);
+        await systemctlRestart('vlan', this.nativeId!, this.console);
     }
 }
