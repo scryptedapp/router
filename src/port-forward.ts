@@ -70,8 +70,7 @@ export class PortForward extends ScryptedDeviceBase implements Settings {
     }
 
     async getSettings() {
-        const ret = await this.storageSettings.getSettings();
-        return ret;
+        return this.storageSettings.getSettings();
     }
 
     async putSetting(key: string, value: SettingValue): Promise<void> {

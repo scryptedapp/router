@@ -334,9 +334,24 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             } satisfies EthernetInterface | VlanInterface);
 
             if (vlan.providedType === ScryptedDeviceType.Internet) {
-                vlan.storageSettings.values.httpsServerPort = httpsServerPortStart++;
-                // addPortForward(nftables, 'ip', interfaceName, new Set(), 'tcp', '443', '127.0.0.1', vlan.storageSettings.values.httpsServerPort);
-                // addPortForward(nftables, 'ip6', interfaceName, new Set(), 'tcp', '443', '::1', vlan.storageSettings.values.httpsServerPort);
+                const locals = await vlan.getLocalNetworks();
+                const lanInterfaces = new Map<string, Vlan>();
+                for (const vlan of locals) {
+                    const vlanInterfaceName = getInterfaceName(vlan.storageSettings.values.parentInterface, vlan.storageSettings.values.vlanId);
+                    lanInterfaces.set(vlanInterfaceName, vlan);
+                }
+
+                vlan.storageSettings.values.httpsServerPort = httpsServerPortStart += 2;
+                const loset = new Set(lanInterfaces.keys());
+                
+                // limitation in sysctl net.ipv4.conf.all.rp_filter
+                // can't do port forward to standard loopback interfaces, gotta add these:
+                // ip addr add 192.168.255.1/32 dev lo
+                // ip -6 addr add fc00::1/128 dev lo
+                // 192.168.255.1/32
+                addPortForward(nftables, 'ip', interfaceName, loset, 'tcp', vlan.storageSettings.values.httpsServerPort, '192.168.255.1', vlan.storageSettings.values.httpsServerPort);
+                // fc00::1/128
+                addPortForward(nftables, 'ip6', interfaceName, loset, 'tcp', vlan.storageSettings.values.httpsServerPort, 'fc00::1', vlan.storageSettings.values.httpsServerPort);
 
                 for (const portforward of await vlan.getPortForwards()) {
                     const { srcPort, dstIp, dstPort, protocol } = portforward.storageSettings.values;
@@ -349,12 +364,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                         continue;
                     }
 
-                    const lanInterfaces = new Set<string>();
-                    const locals = await vlan.getLocalNetworks();
-                    for (const vlan of locals) {
-                        const vlanInterfaceName = getInterfaceName(vlan.storageSettings.values.parentInterface, vlan.storageSettings.values.vlanId);
-                        lanInterfaces.add(vlanInterfaceName);
-
+                    for (const [vlanInterfaceName, vlan] of lanInterfaces) {
                         // need this route policy for hairpinning.
                         if (vlan.storageSettings.values.addressMode === 'Manual') {
                             const vlanTable = ensureTable(vlanInterfaceName);
@@ -368,7 +378,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                         }
                     }
 
-                    addPortForward(nftables, 'ip', interfaceName, lanInterfaces, protocol, srcPort, dstIp, dstPort);
+                    addPortForward(nftables, 'ip', interfaceName, new Set(lanInterfaces.keys()), protocol, srcPort, dstIp, dstPort);
                 }
             }
         }

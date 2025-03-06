@@ -315,6 +315,12 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             portForward.storageSettings.values.srcPort = settings.srcPort;
             portForward.storageSettings.values.dstIp = settings.dstIp;
             portForward.storageSettings.values.dstPort = settings.dstPort;
+
+            portForward.storageSettings.values.srcDomain = settings.srcDomain;
+            portForward.storageSettings.values.dstAddress = settings.dstAddress;
+            portForward.storageSettings.values.dnsSetup = settings.dnsSetup;
+            portForward.storageSettings.values.cloudflareDns = settings.cloudflareDns;
+
             return id;
         }
         else if (this.providedType === ScryptedDeviceType.Network && this.storageSettings.values.dhcpServer === 'Enabled') {
@@ -429,12 +435,74 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
     }
 
     async setupCaddy() {
-        if (true || this.providedType !== ScryptedDeviceType.Internet) {
+        if (this.providedType !== ScryptedDeviceType.Internet) {
             await removeServiceFile('caddy', this.nativeId!, this.console);
             return;
         }
 
-        const caddyfile = ``;
+        let caddyfile = '';
+        const portforwards = await this.getPortForwards();
+        for (const portforward of portforwards) {
+            const { dstAddress, srcDomain, protocol, dnsSetup, cloudflareDns } = portforward.storageSettings.values;
+            if (!protocol.startsWith('http'))
+                continue;
+
+            let dstUrl: URL;
+            try {
+                dstUrl = new URL(dstAddress);
+            }
+            catch (e) {
+                portforward.console.warn('Invalid Destination Address.');
+                continue;
+            }
+
+            if (!srcDomain) {
+                portforward.console.warn('Domain is required for port forward.');
+                continue;
+            }
+
+            let dns = '';
+            switch (dnsSetup) {
+                case 'Cloudflare':
+                    if (!cloudflareDns) {
+                        portforward.console.warn('Cloudflare DNS is required for Cloudflare DNS setup.');
+                        continue;
+                    }
+                    dns = `dns cloudflare ${cloudflareDns}`;
+                    break;
+            }
+
+            const { httpsServerPort } = this.storageSettings.values;
+            caddyfile += `
+http://${srcDomain}:${httpsServerPort + 1} {
+        reverse_proxy /* ${dstUrl.origin}
+}
+
+https://${srcDomain}:${httpsServerPort} {
+        reverse_proxy /* ${dstUrl.origin}
+
+        tls {
+                ${dns}
+        }
+}
+`;
+        }
+
+        if (!caddyfile) {
+            await removeServiceFile('caddy', this.nativeId!, this.console);
+            return;
+        }
+
+        const caddyDataDir = path.join(process.env.SCRYPTED_PLUGIN_VOLUME!, 'caddy', this.nativeId!);
+        caddyfile = `
+{
+    storage file_system {
+        root ${caddyDataDir}
+    }
+}
+
+${caddyfile}`;
+
         const caddyfilePath = path.join('/etc', `Caddyfile.${this.nativeId}`);
 
         const serviceFileContents = `
@@ -461,14 +529,14 @@ Requires=network-online.target
 
 [Service]
 Type=notify
-ExecStart=/usr/local/bin/caddy run -c ${caddyfilePath}
+ExecStart=/usr/local/bin/caddy run -c ${caddyfilePath} 
 ExecReload=/usr/local/bin/caddy run --force -c ${caddyfilePath}
 WorkingDirectory=/root
 TimeoutStopSec=5s
 LimitNOFILE=1048576
 PrivateTmp=true
 ProtectSystem=full
-AmbientCapabilities=CAP_NETd_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 #Environment=CADDY_ADMIN=10.0.0.1:2019
 Environment=HOME=/root
 
