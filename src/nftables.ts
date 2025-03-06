@@ -66,6 +66,16 @@ table ${ip} nat {
         for (const lanInterface of lanInterfaces) {
             addMasquerade(nftables, ip, lanInterface);
 
+            const forward = `
+            table ${ip} filter {
+                chain forward_scrypted {
+                    iif "${lanInterface}" ip daddr ${dstIp} ${actualProto} dport ${dstPort} accept
+                    iif "${lanInterface}" oif "${lanInterface}" ct state established,related accept
+                }
+            }
+            `;
+            nftables.add(forward);
+
             // this isn't matching the wan ip address or interface, which isn't great.
             const prerouting = `
 table ${ip} nat {
