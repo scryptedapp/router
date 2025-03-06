@@ -73,6 +73,14 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             network: {
                 version: 2,
                 ethernets: {
+                    lo: {
+                        addresses: [
+                            "127.0.0.1/8", 
+                            "::1/128",
+                            '192.168.255.1/32',
+                            'fc00::1/128',
+                        ]
+                    }
                 },
                 vlans: {
                 },
