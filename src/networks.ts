@@ -369,8 +369,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                     }
                 }
 
-                const ipv4Addresses = (addresses as string[] || []).map(address => address.split('/')[0]).filter(address => net.isIPv4(address));
-                addPortForward(nftables, 'ip', interfaceName, ipv4Addresses, lanInterfaces, protocol, srcPort, dstIp, dstPort);
+                addPortForward(nftables, 'ip', interfaceName, lanInterfaces, protocol, srcPort, dstIp, dstPort);
             }
         }
 

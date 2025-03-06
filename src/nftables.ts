@@ -36,7 +36,7 @@ flush chain ip6 nat prerouting_scrypted
 `);
 }
 
-export function addPortForward(nftables: Set<string>, ip: 'ip' | 'ip6', wanInterface: string, wanIps: string[], lanInterfaces: Set<string>, protocol: 'tcp' | 'udp' | 'tcp + udp' | 'https', srcPort: string, dstIp: string, dstPort: number) {
+export function addPortForward(nftables: Set<string>, ip: 'ip' | 'ip6', wanInterface: string, lanInterfaces: Set<string>, protocol: 'tcp' | 'udp' | 'tcp + udp' | 'https', srcPort: string, dstIp: string, dstPort: number) {
     let actualProto: string = protocol;
     if (protocol === 'tcp + udp')
         actualProto = 'meta l4proto { tcp, udp } th';
@@ -61,12 +61,10 @@ table ${ip} nat {
 `;
     nftables.add(prerouting);
 
-    for (const wanIp of wanIps) {
+    for (const lanInterface of lanInterfaces) {
+        addMasquerade(nftables, ip, lanInterface);
 
-        for (const lanInterface of lanInterfaces) {
-            addMasquerade(nftables, ip, lanInterface);
-
-            const forward = `
+        const forward = `
             table ${ip} filter {
                 chain forward_scrypted {
                     iif "${lanInterface}" ip daddr ${dstIp} ${actualProto} dport ${dstPort} accept
@@ -74,18 +72,17 @@ table ${ip} nat {
                 }
             }
             `;
-            nftables.add(forward);
+        nftables.add(forward);
 
-            // this isn't matching the wan ip address or interface, which isn't great.
-            const prerouting = `
+        // this is kinda weird but it works, basically if the destination address type is local 4000 from
+        // the lan interface, thats a hairpin connection.
+        const prerouting = `
 table ${ip} nat {
     chain prerouting_scrypted {
-        iif "${lanInterface}" ip daddr ${wanIp} ${actualProto} dport ${srcPort} dnat to ${dstIp}:${dstPort}
+        iif "${lanInterface}" fib daddr type local ${actualProto} dport ${srcPort} dnat to ${dstIp}:${dstPort}
     }
 }
 `;
-            nftables.add(prerouting);
-        }
+        nftables.add(prerouting);
     }
-
 }
