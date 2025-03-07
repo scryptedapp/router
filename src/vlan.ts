@@ -457,6 +457,18 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         return ret;
     }
 
+    get ips() {
+        return (this.storageSettings.values.addresses as string[]).map(cidr => parseCidrIp(cidr));
+    }
+
+    get ipv4Address() {
+        return this.ips.find(ip => net.isIPv4(ip));
+    }
+
+    get ipv6Address() {
+        return this.ips.find(ip => net.isIPv6(ip));
+    }
+
     async setupCaddy() {
         if (this.providedType !== ScryptedDeviceType.Internet) {
             await removeServiceFile('caddy', this.nativeId!, this.console);
@@ -469,7 +481,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
 
         for (const localNetwork of localNetworks) {
             if (localNetwork.storageSettings.values.addressMode === 'Manual') {
-                const ipv4 = (localNetwork.storageSettings.values.addresses as string[]).map(cidr => parseCidrIp(cidr)).find(ip => net.isIPv4(ip));
+                const ipv4 = localNetwork.ipv4Address;
                 if (!ipv4)
                     continue;
                 localAddresses.push(ipv4);
