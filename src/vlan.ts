@@ -119,22 +119,28 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         dhcpServer: {
             title: 'DHCP Server',
             type: 'radiobutton',
-            radioGroups: ['Manual'],
             choices: ['Enabled', 'Disabled'],
-            description: 'Enable DHCP server for this network interface. This will override the DHCP Client setting.',
+            description: 'Enable DHCP server for this network interface.',
             defaultValue: false,
         },
         dhcpRanges: {
             title: 'DHCP Server Ranges',
-            radioGroups: ['Enabled'],
+            radioGroups: ['DHCP Server:Enabled'],
             type: 'string',
             description: 'The DHCP range to use for this network interface. If not specified, a default range between will be used. E.g.: 192.168.10.10,192.168.10.200,12h',
             placeholder: '192.168.10.10,192.168.10.200,12h',
             multiple: true,
         },
+        enableRouterAdvertisements: {
+            title: 'Enable Router Advertisements',
+            radioGroups: ['DHCP Server:Enabled'],
+            type: 'boolean',
+            description: 'Enable Router Advertisements for this network interface.',
+            defaultValue: true,
+        },
         dhcpGateway: {
             title: 'DHCP Gateway',
-            radioGroups: ['Enabled'],
+            radioGroups: ['DHCP Server:Enabled'],
             type: 'string',
             description: 'Advanced: The DHCP gateway to use for this network interface. If not specified, this interface\'s address will be used.',
         },
@@ -706,6 +712,7 @@ WantedBy=multi-user.target
 
         const dhcpGateway = this.storageSettings.values.dhcpGateway || addressWithoutMask;
         const dnsSearchDomains = this.storageSettings.values.dnsSearchDomains.length ? `--dhcp-option=119,${this.storageSettings.values.dnsSearchDomains.join(',')}` : '';
+        const enableRouterAdvertisements = this.storageSettings.values.enableRouterAdvertisements ? '--enable-ra' : '';
 
         const serviceFileContents = `
 [Unit]
@@ -716,7 +723,7 @@ After=network.target
 User=root
 Group=root
 Type=simple
-ExecStart=dnsmasq -d -R -h --host-record=${os.hostname()},${addressWithoutMask} -i ${interfaceName} --except-interface=lo -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} ${dnsSearchDomains} --dhcp-option=3,${dhcpGateway} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')} --dhcp-leasefile=${this.leaseFile} --dhcp-hostsfile=${hostsFile}
+ExecStart=dnsmasq -d -R -h ${enableRouterAdvertisements} --host-record=${os.hostname()},${addressWithoutMask} -i ${interfaceName} --except-interface=lo -z ${dhcpRanges.map(d => `--dhcp-range=${d}`).join(' ')} ${dnsSearchDomains} --dhcp-option=3,${dhcpGateway} --dhcp-option=6,${addressWithoutMask} ${serverArgs.join(' ')} --dhcp-leasefile=${this.leaseFile} --dhcp-hostsfile=${hostsFile}
 Restart=always
 RestartSec=3
 StandardOutput=null
