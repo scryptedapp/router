@@ -12,7 +12,7 @@ import { getInterfaceName } from './interface-name';
 import type { Networks } from "./networks";
 import { getPortForwardSettings, PortForward } from "./port-forward";
 import { getServiceFile, removeServiceFile, systemctlDaemonReload, systemctlDisable, systemctlEnable, systemctlRestart, systemctlStop } from "./systemd";
-
+import { toVendor } from '@network-utils/vendor-lookup'
 
 function findInterfaceAddress(name: string) {
     const interfaces = os.networkInterfaces();
@@ -298,9 +298,11 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             const parts = line.split(' ');
             const mac = parts[1];
             const ip = parts[2];
-            const host = parts[3];
+            let name = parts[3];
+            if (name === '*')
+                name = toVendor(mac) || mac;
             devices.push({
-                name: host,
+                name,
                 nativeId: mac,
                 description: mac,
                 type: ScryptedDeviceType.Network,
