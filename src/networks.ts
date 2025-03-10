@@ -9,11 +9,11 @@ import yaml from 'yaml';
 import { parseCidrIp } from "./cidr";
 import { runCommand } from "./cli";
 import { createDhcpWatcher } from './dchp-watcher';
+import { fakeLoopbackv4, fakeLoopbackv6 } from "./fake-loopback";
 import { getInterfaceName } from "./interface-name";
 import { EthernetInterface, NetplanConfig, Route, RoutingPolicy, VlanInterface } from "./netplan";
-import { addPortForward, addWanGateway, flushChains } from './nftables';
+import { addMasquerade, addPortForward, addWanGateway, flushChains } from './nftables';
 import { Vlan } from "./vlan";
-import { fakeLoopbackv4, fakeLoopbackv6 } from "./fake-loopback";
 
 export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator, Settings {
     vlans = new Map<string, Vlan>();
@@ -250,9 +250,10 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
                             // no need to do any ip6tables if the vlan matches.
                             // routing is necessary on vlan mismatch
-                            if (vlan.storageSettings.values.vlanId !== internetVlan.storageSettings.values.vlanId) {
-                                addWanGateway(nftables, 'ip6', wanInterface, interfaceName);
-                            }
+                            // todo: addMasqerade is preventing this from working currently.
+                            if (vlan.storageSettings.values.vlanId !== internetVlan.storageSettings.values.vlanId)
+                                addMasquerade(nftables, 'ip6', wanInterface);
+                            addWanGateway(nftables, 'ip6', wanInterface, interfaceName);
 
                             if (internetVlan.storageSettings.values.addressMode !== 'Auto') {
                                 for (const ip of addressIps) {

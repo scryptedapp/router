@@ -1,4 +1,9 @@
-function addMasquerade(nftables: Set<string>, ip: 'ip' | 'ip6', wanInterface: string) {
+export function addMasquerade(nftables: Set<string>, ip: 'ip' | 'ip6', wanInterface: string) {
+    // masqerade is only for ipv4?
+    // note: this masquerade is required if the ipv6 is routing across vlans which is weird as hell but also valid.
+    if (ip !== 'ip')
+        return;
+
     const table = `
 table ${ip} nat {
     chain postrouting_scrypted {
@@ -12,6 +17,18 @@ table ${ip} nat {
 
 export function addWanGateway(nftables: Set<string>, ip: 'ip' | 'ip6', wanInterface: string, lanInterface: string) {
     addMasquerade(nftables, ip, wanInterface);
+
+    // seems to work without this?
+//     if (ip === 'ip6') {
+//         const table = `
+// table ${ip} filter {
+//     chain forward_scrypted {
+//         ${ip === 'ip6' ? 'ip6 nexthdr icmpv6 accept' : ''}
+//     }
+// }
+// `;
+//         nftables.add(table);
+//     }
 
     const table = `
 table ${ip} filter {
