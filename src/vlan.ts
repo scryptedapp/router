@@ -118,6 +118,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
 
         dhcpServer: {
             title: 'DHCP Server',
+            group: 'DHCP Server',
             type: 'radiobutton',
             choices: ['Enabled', 'Disabled'],
             description: 'Enable DHCP server for this network interface.',
@@ -125,6 +126,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         },
         dhcpRanges: {
             title: 'DHCP Server Ranges',
+            group: 'DHCP Server',
             radioGroups: ['DHCP Server:Enabled'],
             type: 'string',
             description: 'The DHCP range to use for this network interface. If not specified, a default range between will be used. E.g.: 192.168.10.10,192.168.10.200,12h',
@@ -133,6 +135,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         },
         enableRouterAdvertisements: {
             title: 'Enable Router Advertisements',
+            group: 'DHCP Server',
             radioGroups: ['DHCP Server:Enabled'],
             type: 'boolean',
             description: 'Enable Router Advertisements for this network interface.',
@@ -140,6 +143,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         },
         dhcpGateway: {
             title: 'DHCP Gateway',
+            group: 'DHCP Server',
             radioGroups: ['DHCP Server:Enabled'],
             type: 'string',
             description: 'Advanced: The DHCP gateway to use for this network interface. If not specified, this interface\'s address will be used.',
@@ -431,6 +435,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             this.storageSettings.settings.dhcpServer.hide = true;
             this.storageSettings.settings.dhcpRanges.hide = true;
             this.storageSettings.settings.dhcpGateway.hide = true;
+            this.storageSettings.settings.enableRouterAdvertisements.hide = true;
             this.storageSettings.settings.dnsConfiguration.radioGroups = [
                 'Address Configuration:Auto',
             ];
