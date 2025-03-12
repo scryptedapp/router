@@ -1,5 +1,6 @@
 {
    "name": "@scrypted/router",
+   "type": "module",
    "scripts": {
       "scrypted-setup-project": "scrypted-setup-project",
       "prescrypted-setup-project": "scrypted-package-json",
