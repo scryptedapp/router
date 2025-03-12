@@ -123,6 +123,11 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                 continue;
             }
 
+            if (!vlan.on) {
+                vlan.console.warn('Network was disabled by user.');
+                continue;
+            }
+
             allParents.add(parentInterface);
 
             // sanitize this setting for internet types, which can't get use an internet interface gateway since it is an internet type
@@ -538,6 +543,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             nativeId,
             providerNativeId: this.nativeId,
             interfaces: [
+                ScryptedInterface.OnOff,
                 ScryptedInterface.DeviceProvider,
                 ScryptedInterface.DeviceCreator,
                 ScryptedInterface.Settings,

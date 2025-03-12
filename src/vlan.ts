@@ -1,4 +1,4 @@
-import sdk, { AdoptDevice, DeviceCreator, DeviceCreatorSettings, DeviceDiscovery, DeviceProvider, DiscoveredDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedNativeId, ScryptedSystemDevice, Setting, Settings, SettingValue } from "@scrypted/sdk";
+import sdk, { AdoptDevice, DeviceCreator, DeviceCreatorSettings, DeviceDiscovery, DeviceProvider, DiscoveredDevice, OnOff, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedNativeId, ScryptedSystemDevice, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import crypto from 'crypto';
 import fs from 'fs';
@@ -25,7 +25,7 @@ function findInterfaceAddress(name: string) {
 
 }
 
-export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider, DeviceCreator, ScryptedSystemDevice, DeviceDiscovery {
+export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider, DeviceCreator, ScryptedSystemDevice, DeviceDiscovery, OnOff {
     storageSettings = new StorageSettings(this, {
         parentInterface: {
             title: 'Network Interface',
@@ -243,6 +243,17 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         };
 
         this.updateInfo();
+
+        if (typeof this.on !== 'boolean')
+            this.on = true;
+    }
+
+    async turnOn(): Promise<void> {
+        this.on = true;
+    }
+
+    async turnOff(): Promise<void> {
+        this.on = false;
     }
 
     async getDevice(nativeId: ScryptedNativeId) {
@@ -388,6 +399,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
 
     updateInfo() {
         const interfaces = [
+            ScryptedInterface.OnOff,
             ScryptedInterface.Settings,
             ScryptedInterface.ScryptedSystemDevice,
         ];
