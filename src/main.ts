@@ -1,5 +1,7 @@
 import sdk, { DeviceProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedNativeId } from '@scrypted/sdk';
 import { Networks } from './networks';
+import path from 'path';
+import fs from 'fs';
 
 class ScryptedRouter extends ScryptedDeviceBase implements DeviceProvider {
     networks!: Networks;
@@ -8,6 +10,13 @@ class ScryptedRouter extends ScryptedDeviceBase implements DeviceProvider {
         super(nativeId);
 
         this.reportDevices();
+
+        this.prepareDirectories();
+    }
+
+    async prepareDirectories() {
+        const usbmuxdDataDir = path.join(process.env.SCRYPTED_PLUGIN_VOLUME!, 'usbmuxd');
+        await fs.promises.mkdir(usbmuxdDataDir, { recursive: true });
     }
 
     initializeDevices() {

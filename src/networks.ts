@@ -1,4 +1,4 @@
-import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedNativeId, Setting, Settings, SettingValue } from "@scrypted/sdk";
+import sdk, { DeviceCreator, DeviceCreatorSettings, DeviceProvider, ScryptedDevice, ScryptedDeviceBase, ScryptedDeviceType, ScryptedInterface, ScryptedNativeId, Setting, Settings, SettingValue } from "@scrypted/sdk";
 import { StorageSettings } from "@scrypted/sdk/storage-settings";
 import crypto from 'crypto';
 import fs from 'fs';
@@ -97,7 +97,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         const ipv4Default = '0.0.0.0/0';
         const ipv6Default = '::/0';
 
-        const dhclientPairs: { wanInterface: string; fromIp: string; table: number }[] = [];
+        const dhclientPairs: { wanInterface: string; fromIp: string | undefined; table: number }[] = [];
         const nftables = new Set<string>();
         flushChains(nftables);
 
@@ -131,10 +131,16 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             allParents.add(parentInterface);
 
             // sanitize this setting for internet types, which can't get use an internet interface gateway since it is an internet type
-            if (this.providedType === ScryptedDeviceType.Internet)
+            if (vlan.providedType === ScryptedDeviceType.Internet)
                 vlan.storageSettings.values.gatewayMode = 'Manual';
 
-            let { addresses, addressMode, dnsServers, internet, gateway4, gateway6, gatewayMode } = vlan.storageSettings.values;
+            let { addresses, addressMode, dnsServers, networkInterfaceInternet: niInternet, internet: configuredInternet, gateway4, gateway6, gatewayMode } = vlan.storageSettings.values;
+
+            const internet: string = gatewayMode === 'Network Interface'
+                ? niInternet
+                : gatewayMode === 'Internet'
+                    ? this.vlans.get((configuredInternet as ScryptedDevice)?.nativeId as string)?.interfaceName
+                    : undefined;
 
             const addressIps = (addresses as string[]).map(a => parseCidrIp(a));
 
@@ -153,11 +159,21 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             const dhcp6 = dhcpClient && !!vlan.storageSettings.values.dhcp6;
             const acceptRa = dhcpClient && !!vlan.storageSettings.values.acceptRa;
             const internetVlan = [...this.vlans.values()].find(v => getInterfaceName(v.storageSettings.values.parentInterface, v.storageSettings.values.vlanId) === internet);
+            const interfaceName = getInterfaceName(parentInterface, vlanId);
+            const table = ensureTable(interfaceName);
 
             // use the provided name servers unless configuration is auto
-            if (this.providedType === ScryptedDeviceType.Internet) {
-                if (vlan.storageSettings.values.addressMode === 'Auto' && vlan.storageSettings.values.dnsConfiguration === 'Auto')
-                    dnsServers = undefined;
+            if (vlan.providedType === ScryptedDeviceType.Internet) {
+                if (vlan.storageSettings.values.addressMode === 'Auto') {
+                    dhclientPairs.push({
+                        wanInterface: interfaceName,
+                        fromIp: undefined,
+                        table,
+                    } satisfies { wanInterface: string; fromIp: undefined; table: number });
+
+                    if (vlan.storageSettings.values.dnsConfiguration === 'Auto')
+                        dnsServers = undefined;
+                }
             }
             else {
                 if (vlan.storageSettings.values.addressMode === 'Auto') {
@@ -165,7 +181,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                         dnsServers = undefined;
                 }
                 else {
-                    if (vlan.storageSettings.values.gatewayMode === 'Local Interface') {
+                    if (gatewayMode === 'Network Interface' || gatewayMode === 'Internet') {
                         if (vlan.storageSettings.values.dnsConfiguration === 'Auto') {
                             // this network has an internet interface, try to get the dns from that interface
                             if (internetVlan) {
@@ -185,10 +201,6 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
             const nameservers = dnsServers?.length ? {
                 addresses: dnsServers,
             } : undefined;
-
-            const interfaceName = getInterfaceName(parentInterface, vlanId);
-
-            const table = ensureTable(interfaceName);
 
             const defaultRoute: Route = {
                 to: ipv4Default,
@@ -232,7 +244,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
                     }
                     else {
                         if (!internetVlan) {
-                            this.console.warn(`Internet interface ${internet} not found or is not managed directly.`);
+                            vlan.console.warn(`Internet interface ${internet} not found or is not managed directly.`);
                         }
                         else {
                             const internetTable = ensureTable(internet);

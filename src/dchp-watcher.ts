@@ -1,4 +1,4 @@
-export function createDhcpWatcher(pairs: { wanInterface: string; fromIp: string; table: number }[]) {
+export function createDhcpWatcher(pairs: { wanInterface: string; fromIp: string | undefined; table: number }[]) {
     const interfaces = [...new Set(pairs.map(pair => pair.wanInterface))];
     const ret = `#!/bin/bash
 
@@ -22,14 +22,16 @@ update_dhcp_lease() {
     echo "Updating DHCP lease for interface $interface"
 
     local lease_file="/run/systemd/netif/leases/$(cat /sys/class/net/$interface/uevent | grep 'IFINDEX=' | cut -d'=' -f2)"
-    local router="$(cat $lease_file | grep 'ROUTER=' | cut -d'=' -f2)"
-    echo $router
+    local router="$(cat $lease_file | grep 'ROUTER=' | cut -d'=' -f2 | head -n 1)"
+    local address="$(cat $lease_file | grep 'ADDRESS=' | cut -d'=' -f2 | head -n 1)"
+    echo Address: $address
+    echo Router: $router
 
     ${pairs.map(pair => `
     if [ "$interface" = "${pair.wanInterface}" ]; then
-        add_or_replace_route "${pair.wanInterface}" "${pair.fromIp}" ${pair.table} $router
+        add_or_replace_route "${pair.wanInterface}" "${pair.fromIp || '$address'}" ${pair.table} $router
     fi
-        `).join('\n\n')}
+`).join('\n\n')}
 }
 
 # List of interfaces to monitor

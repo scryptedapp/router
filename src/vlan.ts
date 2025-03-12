@@ -69,15 +69,24 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             title: 'Internet Gateway',
             radioGroups: ['Address Configuration:Manual'],
             type: 'radiobutton',
-            choices: ['Disabled', 'Local Interface', 'Manual'],
+            choices: ['Internet', 'Network Interface', 'Manual', 'Disabled'],
+            defaultValue: 'Disabled',
+            description: 'The connection to use as the internet gateway.',
         },
-
         internet: {
-            title: 'Local Interface',
-            radioGroups: ['Local Interface'],
-            description: 'The local interface that acts as a internet gateway for this network.',
+            title: 'Internet',
+            radioGroups: ['Internet Gateway:Internet'],
+            description: 'Select an existing configured internet connection.',
+            type: 'device',
+            deviceFilter: ({type, ScryptedDeviceType}) => {
+                return type === ScryptedDeviceType.Internet;
+            },
         },
-
+        networkInterfaceInternet: {
+            title: 'Network Interface',
+            radioGroups: ['Internet Gateway:Network Interface'],
+            description: 'Local network interface provides internet connectivity.',
+        },
         gateway4: {
             title: 'Gateway IPv4',
             radioGroups: ['Internet Gateway:Manual'],
@@ -85,7 +94,6 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             description: 'The IPv4 gateway for this network interface.',
             placeholder: '192.168.10.1',
         },
-
         gateway6: {
             title: 'Gateway IPv6',
             radioGroups: ['Internet Gateway:Manual'],
@@ -157,7 +165,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             defaultValue: 'Auto',
             radioGroups: [
                 'Address Configuration:Auto',
-                'Internet Gateway:Local Interface',
+                'Internet Gateway:Network Interface',
             ]
         },
         dnsServers: {
@@ -230,7 +238,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             }
         };
 
-        this.storageSettings.settings.internet.onGet = async () => {
+        this.storageSettings.settings.networkInterfaceInternet.onGet = async () => {
             const disallowed = new Set<string>();
             disallowed.add(getInterfaceName(this.storageSettings.values.parentInterface, this.storageSettings.values.vlanId));
             disallowed.add('lo');
@@ -246,6 +254,10 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
 
         if (typeof this.on !== 'boolean')
             this.on = true;
+    }
+
+    get interfaceName() {
+        return getInterfaceName(this.storageSettings.values.parentInterface, this.storageSettings.values.vlanId);
     }
 
     async turnOn(): Promise<void> {
@@ -443,6 +455,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         if (this.providedType == 'Internet' as ScryptedDeviceType) {
             // this.storageSettings.settings.gatewayMode.type = 'radiopanel';
             this.storageSettings.settings.gatewayMode.hide = true;
+            this.storageSettings.settings.networkInterfaceInternet.hide = true;
             this.storageSettings.settings.internet.hide = true;
             this.storageSettings.settings.gateway4.radioGroups = ['Address Configuration:Manual'];
             this.storageSettings.settings.gateway6.radioGroups = ['Address Configuration:Manual'];
@@ -461,7 +474,10 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
         const interfaceName = getInterfaceName(this.storageSettings.values.parentInterface, this.storageSettings.values.vlanId);
         const vlans: Vlan[] = [];
         for (const vlan of this.networks.vlans.values()) {
-            if (vlan.storageSettings.values.gatewayMode === 'Local Interface' && vlan.storageSettings.values.internet === interfaceName) {
+            if (vlan.storageSettings.values.gatewayMode === 'Network Interface' && vlan.storageSettings.values.networkInterfaceInternet === interfaceName) {
+                vlans.push(vlan);
+            }
+            else if (vlan.storageSettings.values.gatewayMode === 'Internet' && vlan.storageSettings.values.networkInterfaceInternet === interfaceName) {
                 vlans.push(vlan);
             }
         }
