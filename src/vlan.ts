@@ -78,7 +78,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             radioGroups: ['Internet Gateway:Internet'],
             description: 'Select an existing configured internet connection.',
             type: 'device',
-            deviceFilter: ({type, ScryptedDeviceType}) => {
+            deviceFilter: ({ type, ScryptedDeviceType }) => {
                 return type === ScryptedDeviceType.Internet;
             },
         },
@@ -321,9 +321,19 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             const parts = line.split(' ');
             const mac = parts[1];
             const ip = parts[2];
-            let name = parts[3];
+            let host = parts[3];
+            let name = host;
             if (name === '*')
                 name = toVendor(mac) || mac;
+            const ss = getAddressReservationSettings(this);
+            ss.settings.host.defaultValue = host;
+            ss.settings.ip.defaultValue = ip;
+            ss.settings.mac.defaultValue = mac;
+
+            ss.settings.mac.readonly = true;
+            ss.settings.ip.readonly = true;
+
+            const settings = await ss.getSettings();
             devices.push({
                 name,
                 nativeId: mac,
@@ -336,6 +346,7 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
                     mac,
                     ip,
                 },
+                settings,
             });
         }
         return devices;
