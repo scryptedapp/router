@@ -15,41 +15,41 @@ export async function enumerateServiceFiles(suffix: string) {
     return serviceFiles.map(file => path.join(serviceDir, file));
 }
 
-export function getServiceFileBasename(suffix: string, nativeId: string) {
-    return `scrypted-${suffix}-${nativeId}.service`;
+export function getServiceFileBasename(suffix: string, nativeId: string, extension = 'service') {
+    return `scrypted-${suffix}-${nativeId}.${extension}`;
 }
 
-export function getServiceFile(suffix: string, nativeId: string) {
-    return `/etc/systemd/system/${getServiceFileBasename(suffix, nativeId)}`;
+export function getServiceFile(suffix: string, nativeId: string, extension = 'service') {
+    return `/etc/systemd/system/${getServiceFileBasename(suffix, nativeId, extension)}`;
 }
 
-export async function removeServiceFile(suffix: string, nativeId: string, console: Console) {
-    await systemctlStop(suffix, nativeId, console);
-    await systemctlDisable(suffix, nativeId, console);
-    await fs.promises.rm(getServiceFile(suffix, nativeId), {
+export async function removeServiceFile(suffix: string, nativeId: string, console: Console, extension = 'service') {
+    await systemctlStop(suffix, nativeId, console, extension);
+    await systemctlDisable(suffix, nativeId, console, extension);
+    await fs.promises.rm(getServiceFile(suffix, nativeId, extension), {
         force: true,
     });
     await systemctlDaemonReload(console);
 }
 
-export async function systemctlStop(suffix: string, nativeId: string, console: Console) {
-    await runSystemctlCommand('stop', [getServiceFileBasename(suffix, nativeId)], console);
+export async function systemctlStop(suffix: string, nativeId: string, console: Console, extension = 'service') {
+    await runSystemctlCommand('stop', [getServiceFileBasename(suffix, nativeId, extension)], console);
 }
 
-export async function systemctlStart(suffix: string, nativeId: string, console: Console) {
-    await runSystemctlCommand('start', [getServiceFileBasename(suffix, nativeId)], console);
+export async function systemctlStart(suffix: string, nativeId: string, console: Console, extension = 'service') {
+    await runSystemctlCommand('start', [getServiceFileBasename(suffix, nativeId, extension)], console);
 }
 
-export async function systemctlRestart(suffix: string, nativeId: string, console: Console) {
-    await runSystemctlCommand('restart', [getServiceFileBasename(suffix, nativeId)], console);
+export async function systemctlRestart(suffix: string, nativeId: string, console: Console, extension = 'service') {
+    await runSystemctlCommand('restart', [getServiceFileBasename(suffix, nativeId, extension)], console);
 }
 
-export async function systemctlDisable(suffix: string, nativeId: string, console: Console) {
-    await runSystemctlCommand('disable', [getServiceFileBasename(suffix, nativeId)], console);
+export async function systemctlDisable(suffix: string, nativeId: string, console: Console, extension = 'service') {
+    await runSystemctlCommand('disable', [getServiceFileBasename(suffix, nativeId, extension)], console);
 }
 
-export async function systemctlEnable(suffix: string, nativeId: string, console: Console) {
-    await runSystemctlCommand('enable', [getServiceFileBasename(suffix, nativeId)], console);
+export async function systemctlEnable(suffix: string, nativeId: string, console: Console, extension = 'service') {
+    await runSystemctlCommand('enable', [getServiceFileBasename(suffix, nativeId, extension)], console);
 }
 
 export async function systemctlDaemonReload(console: Console) {

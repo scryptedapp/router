@@ -691,10 +691,12 @@ WantedBy=multi-user.target
     async initializeNetworkInterface() {
         const interfaceName = getInterfaceName(this.storageSettings.values.parentInterface, this.storageSettings.values.vlanId);
         const serviceFile = getServiceFile('vlan', this.nativeId!);
+        const timerFile = getServiceFile('vlan', this.nativeId!, 'timer');
 
         if (!this.storageSettings.values.parentInterface || !this.storageSettings.values.parentInterface) {
             // invalid config
             await removeServiceFile('vlan', this.nativeId!, this.console);
+            await removeServiceFile('vlan', this.nativeId!, this.console, 'timer');
             await removeServiceFile('caddy', this.nativeId!, this.console);
             return;
         }
@@ -702,6 +704,7 @@ WantedBy=multi-user.target
         if (this.storageSettings.values.addressMode === 'Auto' || this.storageSettings.values.dhcpServer !== 'Enabled') {
             // no dhcp server in use
             await removeServiceFile('vlan', this.nativeId!, this.console);
+            await removeServiceFile('vlan', this.nativeId!, this.console, 'timer');
             await this.setupCaddy();
             return;
         }
@@ -710,6 +713,7 @@ WantedBy=multi-user.target
             // invalid config
             this.console.warn('Address is required if DHCP Mode is Server.');
             await removeServiceFile('vlan', this.nativeId!, this.console);
+            await removeServiceFile('vlan', this.nativeId!, this.console, 'timer');
             await removeServiceFile('caddy', this.nativeId!, this.console);
             return;
         }
@@ -743,6 +747,7 @@ WantedBy=multi-user.target
             // invalid config but recoverable
             this.console.warn('DHCP Range is required if DHCP Mode is Server.');
             await removeServiceFile('vlan', this.nativeId!, this.console);
+            await removeServiceFile('vlan', this.nativeId!, this.console, 'timer');
             await this.setupCaddy();
             return;
         }
@@ -790,12 +795,28 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target`;
 
+        // timer file that restarts every 24 hours, dnsmasq stops responding to dns for some reason after several weeks?
+        // nothing in log.
+        const timerFileContents = `[Unit]
+Description=Restart DHCP for VLAN ${this.storageSettings.values.vlanId} every 24 hours
+
+[Timer]
+OnCalendar=daily
+Unit=${path.basename(serviceFile)}
+
+[Install]
+WantedBy=timers.target`;
+
         await fs.promises.writeFile(serviceFile, serviceFileContents);
+        await fs.promises.writeFile(timerFile, timerFileContents);
 
         await this.setupCaddy();
 
         await systemctlDaemonReload(this.console);
         await systemctlEnable('vlan', this.nativeId!, this.console);
         await systemctlRestart('vlan', this.nativeId!, this.console);
+
+        await systemctlEnable('vlan', this.nativeId!, this.console, 'timer');
+        await systemctlRestart('vlan', this.nativeId!, this.console, 'timer');
     }
 }
