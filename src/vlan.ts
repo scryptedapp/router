@@ -589,6 +589,8 @@ export class Vlan extends ScryptedDeviceBase implements Settings, DeviceProvider
             let reverseProxyOrigin = '';
             if (dstUrl) {
                 reverseProxyOrigin = `
+    @http protocol http 
+    redir @http https://{host}{uri} permanent
     reverse_proxy /* ${dstUrl.origin} {
         transport http {
                 resolvers ${nameMap.get(dstUrl.hostname.toLowerCase()) || localAddresses.join(' ')}
