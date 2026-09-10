@@ -12,7 +12,7 @@ import { createDhcpWatcher } from './dchp-watcher';
 import { fakeLoopbackv4, fakeLoopbackv6 } from "./fake-loopback";
 import { getInterfaceName } from "./interface-name";
 import { EthernetInterface, NetplanConfig, Route, RoutingPolicy, VlanInterface } from "./netplan";
-import { addMasquerade, addPortForward, addWanGateway, flushChains } from './nftables';
+import { addMasquerade, addPortForward, addWanGateway, addWanInputFirewall, flushChains, initializeWanInputFirewall } from './nftables';
 import { Vlan } from "./vlan";
 
 export class Networks extends ScryptedDeviceBase implements DeviceProvider, DeviceCreator, Settings {
@@ -100,6 +100,7 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
         const dhclientPairs: { wanInterface: string; fromIp: string | undefined; table: number }[] = [];
         const nftables = new Set<string>();
         flushChains(nftables);
+        initializeWanInputFirewall(nftables);
 
         const ensureTable = (interfaceName: string) => {
             let table = tableMaps.get(interfaceName);
@@ -164,6 +165,8 @@ export class Networks extends ScryptedDeviceBase implements DeviceProvider, Devi
 
             // use the provided name servers unless configuration is auto
             if (vlan.providedType === ScryptedDeviceType.Internet) {
+                addWanInputFirewall(nftables, interfaceName);
+
                 if (vlan.storageSettings.values.addressMode === 'Auto') {
                     dhclientPairs.push({
                         wanInterface: interfaceName,

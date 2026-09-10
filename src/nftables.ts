@@ -42,6 +42,32 @@ table ${ip} filter {
     nftables.add(table);
 }
 
+export function initializeWanInputFirewall(nftables: Set<string>) {
+    nftables.add(`add table inet scrypted_filter`);
+    nftables.add(`delete table inet scrypted_filter`);
+    nftables.add(`
+table inet scrypted_filter {
+    set wan_interfaces {
+        type ifname
+    }
+
+    chain input {
+        type filter hook input priority -10; policy accept;
+
+        iifname @wan_interfaces ct state established,related accept
+        iifname @wan_interfaces ip protocol icmp accept
+        iifname @wan_interfaces meta l4proto ipv6-icmp accept
+        iifname @wan_interfaces ct status dnat accept
+        iifname @wan_interfaces drop
+    }
+}
+`);
+}
+
+export function addWanInputFirewall(nftables: Set<string>, wanInterface: string) {
+    nftables.add(`add element inet scrypted_filter wan_interfaces { "${wanInterface}" }`);
+}
+
 export function flushChains(nftables: Set<string>) {
     nftables.add(`
 flush chain ip nat postrouting_scrypted
